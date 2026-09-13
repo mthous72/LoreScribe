@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LoreScribe">
+  <!-- Full-bleed ground, glyph inside the 80% safe zone: a launcher may crop
+       this to a circle, a squircle or a rounded square and must not clip it. -->
+  <rect width="512" height="512" fill="#16212c"/>
+  <g transform="translate(256 256) scale(0.62) translate(-256 -256)">
+    <path d="M144 112h164l60 60v228a20 20 0 0 1-20 20H144a20 20 0 0 1-20-20V132a20 20 0 0 1 20-20z"
+          fill="#f4f1ea"/>
+    <path d="M308 112l60 60h-60z" fill="#cfc8b8"/>
+    <g stroke="#16212c" stroke-width="20" stroke-linecap="round">
+      <path d="M168 232h140"/>
+      <path d="M168 288h140"/>
+      <path d="M168 344h72"/>
+    </g>
+    <circle cx="316" cy="344" r="30" fill="#c8794a"/>
+  </g>
+</svg>

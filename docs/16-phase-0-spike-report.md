@@ -17,8 +17,23 @@ plan's assumptions were wrong and are corrected below.
 |---|---|---|
 | 1 | Local Chromium 153, production build served by `vite preview` | **done — this report** |
 | 1b | CI (`ubuntu-latest`, Playwright Chromium), plain and under the `/LoreScribe/` prefix | **done — green, every step** |
-| 2 | Deployed Pages origin, desktop Chrome | pending — needs a merge to `main` or a manual dispatch |
-| 3 | Deployed Pages origin, Android Chrome on a real device | pending — needs the phone ([D16](10-decisions.md)) |
+| 2 | Deployed Pages origin, desktop Chrome | **partial** — see below |
+| 3 | Deployed Pages origin, Android Chrome on a real device | **done — R2b survived** |
+
+**Environment 2 is deliberately marked partial rather than done.** What was
+verified directly: the origin serves the *build* and not the repository, the
+entry bundle, CSS, worker bundle and OPFS async proxy all return 200 under the
+`/LoreScribe/` prefix, and `sqlite3.wasm` arrives as 868 KB with
+`content-type: application/wasm` — the header whose absence makes
+`WebAssembly.instantiateStreaming` fail with an error that points nowhere
+useful. The full measurement run against the live origin was not possible from
+the development sandbox, whose egress relay drops a browser's tunnels
+mid-exchange; `npm run test:live` performs it from any ordinary machine.
+
+It is left partial rather than chased because its marginal value is low:
+[D16](10-decisions.md) gives desktop no dedicated QA matrix, CI already runs
+every gate under the same base path, and environment 3 — the one that decides
+anything — is done.
 
 Environment 1 is a headless Chromium in a Linux container. It is a real browser
 running the real production build, so the storage semantics are honest; the
@@ -50,7 +65,7 @@ versions per scene, 200 entities, 2,000 facts with both time axes populated,
 | Pool files consumed | **2 of 8** | measured | — |
 | Origin quota | 13 MB used of 962 MB | measured | — |
 | `navigator.storage.persist()` | **refused** | measured | — |
-| Migration 001 (52 tables, 5 views, 2 FTS) | 167 ms, `user_version` 0 → 1 | informational | — |
+| Migrations 001 + 002 | 235 ms, `user_version` 0 → 2 | informational | — |
 
 SQLite 3.53.4, `@sqlite.org/sqlite-wasm` 3.53.4-build1, Vite 7.3.6.
 
@@ -193,7 +208,7 @@ A regression test now reopens a database under every journal mode the app ships.
 | **C1** — phone width | 390 px, no horizontal overflow, both routes ([D15](10-decisions.md)) |
 | **C2–C4** — project survives reload; `op_log` per mutation; `persist()` surfaced | pass |
 | **D** — typecheck, lint, licence allowlist, CI, Pages deploy | pass; 9 production dependencies, all allowed |
-| **A9** — production build under Pages' `/LoreScribe/` prefix | pass — the full gate suite runs a second time against it |
+| **A9** — production build under Pages' `/LoreScribe/` prefix | pass — every gate runs a second time against it |
 
 That last one is worth its own line. sqlite-wasm resolves its `.wasm` and its
 OPFS async proxy through `import.meta.url` from inside a dependency Vite is told
@@ -201,14 +216,29 @@ not to pre-bundle, so a base path is precisely where that arrangement would
 break — and it would break only in production. It is checked by running the
 gates again under the real prefix rather than by inspecting the build output.
 
+*Corrected after a Phase 1 audit:* this originally claimed the whole suite
+re-ran under the prefix when only gates B and C did — gate A's multi-tab and
+kill tests, the ones most likely to behave differently at a base path, were
+excluded by a `testMatch`. Expanding it immediately failed three tests, for an
+unrelated reason worth having found.
+
 ---
 
 ## Open items
 
-- **Environments 2 and 3.** Gate A is not closed until the Pages origin and a
-  real Android device are measured. The Pages workflow deploys on push to `main`
-  or on manual dispatch, so environment 2 is one action away; environment 3 needs
-  a person holding a phone.
+- **R2b is answered: the handles survived.** Tested on the real device against
+  the deployed origin, holding one connection across the interruption. This
+  closes the question that could have moved Capacitor into Phase 0, and the web
+  path on Android stands.
+
+  Worth stating what that does and does not establish. It is one pass, on one
+  device, under whatever memory pressure that session happened to produce — good
+  evidence, not proof that handles survive every condition. Two things make that
+  acceptable rather than a gap: the failure would be recoverable rather than
+  destructive (the file on disk is unaffected; a lost handle means reopening),
+  and the `SqlDriver` split means switching to the native path stays a driver
+  change rather than a rewrite. The harness ships, so it can be re-run on any
+  device whenever the answer is doubted.
 
   **The R2b harness had to be built, not just described.** The obvious
   instruction — run the spike, background the tab, run it again — cannot answer
@@ -233,10 +263,9 @@ gates again under the real prefix rather than by inspecting the build output.
   second. Pool capacity is reserved at 8 files against a default of 6; capacity
   is a file count, not bytes, so growth in bytes doesn't threaten it, but temp
   files would, which is why `temp_store=MEMORY` is set.
-- **`entity_type` has no seed data.** `entity.type_key` references it and
-  `db/schema.sql` ships no rows, so a fresh database cannot hold an entity. The
-  corpus seeds seven built-in types to run at all; **Phase 1 needs a real seed
-  migration**.
+- ~~**`entity_type` has no seed data.**~~ **Closed** by
+  `db/migrations/002_seed_entity_types.sql`: eleven built-in types from doc 02
+  §3, pinned by gate B5.
 - **Pinning Vite 7 has an ecosystem cost.** `@vitejs/plugin-react` 6 requires
   Vite 8, so 5.2.0 is pinned — it supports both, which makes the eventual move
   cheap. Worth knowing that the pin is not free.

@@ -3,10 +3,20 @@ import { type SqlDriver, SqlOpenError, classifyOpenFailure } from './driver';
 
 /** Our own worker RPC. The shipped promiser is deprecated — docs/15 §7. */
 export class WorkerSqlDriver implements SqlDriver {
+  /**
+   * Long enough that a genuine bulk import is never cut off, short enough that
+   * a dead worker surfaces as an error the UI can explain.
+   */
+  static requestTimeoutMs = 30_000;
   readonly engine = 'sqlite-wasm-opfs-sahpool';
   #worker: Worker;
   #next = 1;
-  #pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
+  #pending = new Map<number, {
+    resolve: (v: unknown) => void;
+    reject: (e: unknown) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+  #dead: { name: string; message: string } | null = null;
 
   private constructor(worker: Worker) {
     this.#worker = worker;
@@ -14,10 +24,28 @@ export class WorkerSqlDriver implements SqlDriver {
       const m = ev.data;
       const p = this.#pending.get(m.id);
       if (!p) return;
+      clearTimeout(p.timer);
       this.#pending.delete(m.id);
       if (m.ok) p.resolve(m.value);
       else p.reject(m.error);
     };
+    // A terminated worker never replies, so without this every in-flight call
+    // parks forever and presents as a slow query rather than a dead one. The
+    // lesson is recorded in docs/16 and was, until now, guarded only inside the
+    // R2b harness — not in the driver that actually runs on the phone whose
+    // worker might be reclaimed.
+    this.#worker.onerror = (e: ErrorEvent) => this.#fail({
+      name: 'WorkerError', message: e.message || 'the database worker failed',
+    });
+    this.#worker.onmessageerror = () => this.#fail({
+      name: 'WorkerError', message: 'the database worker sent an unreadable message',
+    });
+  }
+
+  #fail(error: { name: string; message: string }): void {
+    this.#dead = error;
+    for (const [, p] of this.#pending) { clearTimeout(p.timer); p.reject(error); }
+    this.#pending.clear();
   }
 
   static async open(req: OpenRequest): Promise<{ driver: WorkerSqlDriver; diagnostics: Diagnostics }> {
@@ -33,10 +61,18 @@ export class WorkerSqlDriver implements SqlDriver {
     }
   }
 
-  #send(body: ReqBody): Promise<unknown> {
+  #send(body: ReqBody, timeoutMs = WorkerSqlDriver.requestTimeoutMs): Promise<unknown> {
+    if (this.#dead) return Promise.reject(this.#dead);
     const id = this.#next++;
     return new Promise((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.#pending.delete(id);
+        reject({
+          name: 'WorkerTimeout',
+          message: `the database did not answer within ${timeoutMs}ms`,
+        });
+      }, timeoutMs);
+      this.#pending.set(id, { resolve, reject, timer });
       this.#worker.postMessage({ id, ...body } as Req);
     });
   }
@@ -57,5 +93,8 @@ export class WorkerSqlDriver implements SqlDriver {
   /** Cooperative multi-tab handoff — SQLite 3.50's pauseVfs/unpauseVfs. */
   async pause() { await this.#send({ kind: 'pause' }); }
   async unpause() { await this.#send({ kind: 'unpause' }); }
-  terminate() { this.#worker.terminate(); }
+  terminate() {
+    this.#fail({ name: 'WorkerTerminated', message: 'the database worker was stopped' });
+    this.#worker.terminate();
+  }
 }

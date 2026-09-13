@@ -2,3 +2,13 @@
 
 /* Phone width is a first-class layout from Phase 0, not a later pass (D15). */
 :root { color-scheme: light dark; }
+
+/* Live mention highlight. Deliberately quiet: this marks a link the tool found,
+   not an error, and prose the writer is reading must stay readable. */
+.ls-mention {
+  border-bottom: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  border-radius: 2px;
+}
+.ProseMirror { outline: none; }
+.ProseMirror p { margin: 0 0 0.75em; }

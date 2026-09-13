@@ -92,7 +92,7 @@ export function BackgroundTestPanel() {
             : 'bg-red-500/15 text-red-800 dark:text-red-300'}`}>
           {state.verdict === 'survived'
             ? `Handles survived ${mins(state.longestHiddenMs)} backgrounded. R2b is answered — the web path holds on this device.`
-            : `Handles were lost. The web path cannot be relied on here; Capacitor moves into Phase 0.`}
+            : 'Handles were lost. The web path cannot be relied on here; Capacitor moves into Phase 0.'}
         </p>
       )}
 

@@ -39,3 +39,58 @@ jobs:
           path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      # Prove the deployment is the BUILD and not the repository.
+      #
+      # GitHub's legacy branch-based Pages builder publishes the repo verbatim,
+      # and if Pages "Source" is set to a branch rather than GitHub Actions it
+      # runs alongside this workflow and overwrites it seconds later. Both jobs
+      # report success. The only visible symptom is a blank page on whatever
+      # device someone happens to open — which is how we found it the first
+      # time, on a phone.
+      #
+      # A served index.html that still references /src/main.tsx is source, not
+      # output: the build rewrites that line to a hashed asset under the base
+      # path. Checking it costs one step and turns a silent misconfiguration
+      # into a red run.
+      - name: Verify the served page is the built output
+        run: |
+          url="${{ steps.deployment.outputs.page_url }}"
+          echo "checking $url"
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -sSL --max-time 30 "$url" || true)
+            if printf '%s' "$body" | grep -q 'assets/index-'; then
+              echo "OK: serving built assets"
+              exit 0
+            fi
+            if printf '%s' "$body" | grep -q '/src/main.tsx'; then
+              echo "::error::Pages is serving the REPOSITORY, not the build."
+              echo "::error::Settings -> Pages -> Source must be 'GitHub Actions', not 'Deploy from a branch'."
+              echo "::error::A branch source runs the legacy builder, which overwrites this deployment."
+              exit 1
+            fi
+            echo "attempt $attempt: not propagated yet, waiting"
+            sleep $((attempt * 10))
+          done
+          echo "::error::Could not confirm the built output after 5 attempts."
+          printf '%s' "$body" | head -40
+          exit 1
+
+      # The two files that make the deployment installable and offline-capable.
+      # They are the ones a base-path mistake breaks silently: the app still
+      # loads, the install prompt just never appears and nothing is cached, and
+      # nobody notices until a writer is somewhere without signal.
+      - name: Verify the manifest and service worker are served
+        run: |
+          url="${{ steps.deployment.outputs.page_url }}"
+          fail=0
+          for path in manifest.webmanifest sw.js icons/icon-192.png icons/icon-512.png; do
+            code=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 30 "${url%/}/$path" || echo 000)
+            echo "$path -> $code"
+            [ "$code" = "200" ] || { echo "::error::$path is not being served ($code)"; fail=1; }
+          done
+          # A service worker whose precache points at the wrong base caches
+          # nothing and fails silently, so check it names this deployment's path.
+          curl -sSL --max-time 30 "${url%/}/sw.js" | grep -q '"/LoreScribe/assets/' \
+            || { echo "::error::sw.js precache does not use the Pages base path"; fail=1; }
+          exit $fail

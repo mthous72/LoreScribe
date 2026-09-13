@@ -1,3 +1,5 @@
+import { firstKey, initialKeys, sceneGlobalRank } from '../domain/sortKey';
+
 /**
  * Deterministic synthetic corpus.
  *
@@ -18,12 +20,12 @@ export function rng(seed: number): () => number {
   };
 }
 
-const ONSET = ['b','br','d','dr','f','g','gr','h','k','kr','l','m','n','p','r','s','sh','st','t','th','v','w','z'];
-const NUCLEUS = ['a','e','i','o','u','ae','ei','ou','ia','au'];
-const CODA = ['','n','r','l','s','th','k','m','ld','rn','st'];
+const ONSET = ['b', 'br', 'd', 'dr', 'f', 'g', 'gr', 'h', 'k', 'kr', 'l', 'm', 'n', 'p', 'r', 's', 'sh', 'st', 't', 'th', 'v', 'w', 'z'];
+const NUCLEUS = ['a', 'e', 'i', 'o', 'u', 'ae', 'ei', 'ou', 'ia', 'au'];
+const CODA = ['', 'n', 'r', 'l', 's', 'th', 'k', 'm', 'ld', 'rn', 'st'];
 
 function word(r: () => number): string {
-  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
   let w = pick(ONSET) + pick(NUCLEUS) + pick(CODA);
   if (r() < 0.35) w += pick(NUCLEUS) + pick(CODA);
   return w;
@@ -76,7 +78,7 @@ const now = 1_760_000_000_000;
 export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   const r = rng(spec.seed);
   const vocab = lexicon(r, spec.vocabulary);
-  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
 
   // Zipf-ish: low indices are common, high indices are rare.
   const zipf = () => vocab[Math.min(vocab.length - 1, Math.floor(Math.abs(r() ** 3) * vocab.length))]!;
@@ -98,23 +100,18 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   const batches: { sql: string; params: unknown[] }[][] = [];
   const projectId = 'pr_0001';
   const bookId = 'bk_0001';
+  const bookKey = firstKey();
 
+  // entity_type is seeded by migration 002 — the corpus used to insert its own
+  // rows here because the schema shipped none, which is how that gap was found.
   const head: { sql: string; params: unknown[] }[] = [];
-  for (const [key, label] of [
-    ['character', 'Character'], ['location', 'Location'], ['faction', 'Faction'],
-    ['item', 'Item'], ['event', 'Event'], ['concept', 'Concept'], ['language', 'Language'],
-  ] as const) {
-    // NOTE: the schema ships no seed data for entity_type. Phase 1 needs a real
-    // seed migration; the corpus does it here so Gate A can run.
-    head.push({ sql: 'INSERT INTO entity_type (key, label) VALUES (?,?)', params: [key, label] });
-  }
   head.push({
-    sql: `INSERT INTO project (id,title,premise,created_at,updated_at) VALUES (?,?,?,?,?)`,
+    sql: 'INSERT INTO project (id,title,premise,created_at,updated_at) VALUES (?,?,?,?,?)',
     params: [projectId, 'The Grey Warden', prose(40), now, now],
   });
   head.push({
-    sql: `INSERT INTO book (id,project_id,title,sort_key,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
-    params: [bookId, projectId, 'Book One', 'm', now, now],
+    sql: 'INSERT INTO book (id,project_id,title,sort_key,created_at,updated_at) VALUES (?,?,?,?,?,?)',
+    params: [bookId, projectId, 'Book One', bookKey, now, now],
   });
   batches.push(head);
 
@@ -128,30 +125,35 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
     entBatch.push({
       sql: `INSERT INTO entity (id,project_id,type_key,name,summary,description,importance,maturity,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      params: [id, projectId, pick(['character','location','faction','item','concept']),
+      params: [id, projectId, pick(['character', 'location', 'faction', 'item', 'concept']),
         word(r).replace(/^./, (c) => c.toUpperCase()), prose(15), prose(120), importance, 'adult', now, now],
     });
     entBatch.push({
-      sql: `INSERT INTO entity_alias (id,entity_id,alias,kind,is_primary,created_at) VALUES (?,?,?,?,1,?)`,
+      sql: 'INSERT INTO entity_alias (id,entity_id,alias,kind,is_primary,created_at) VALUES (?,?,?,?,1,?)',
       params: [`al_${String(i).padStart(5, '0')}`, id, word(r), 'name', now],
     });
   }
   batches.push(entBatch);
 
-  // Chapters
+  // Chapters. Keys come from the project's own sort-key module rather than
+  // zero-padded integers: the corpus used to mint its own, which meant two
+  // incompatible encodings for the same columns lived in one repository, and
+  // whichever was written second would have mis-ordered the manuscript.
   const chapBatch: { sql: string; params: unknown[] }[] = [];
   const chapterIds: string[] = [];
+  const chapterKeys = initialKeys(spec.chapters);
   for (let i = 0; i < spec.chapters; i++) {
     const id = `ch_${String(i).padStart(4, '0')}`;
     chapterIds.push(id);
     chapBatch.push({
-      sql: `INSERT INTO chapter (id,book_id,number,title,sort_key,summary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
-      params: [id, bookId, i + 1, `Chapter ${i + 1}`, String(i).padStart(6, '0'), prose(60), now, now],
+      sql: 'INSERT INTO chapter (id,book_id,number,title,sort_key,summary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+      params: [id, bookId, i + 1, `Chapter ${i + 1}`, chapterKeys[i]!, prose(60), now, now],
     });
   }
   batches.push(chapBatch);
 
   // Scenes, versions, mentions, FTS
+  const sceneKeys = initialKeys(spec.scenes);
   const sceneIds: string[] = [];
   const probeTerms = new Set<string>();
   let totalWords = 0;
@@ -161,7 +163,8 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
     const b: { sql: string; params: unknown[] }[] = [];
     const id = `sc_${String(i).padStart(5, '0')}`;
     sceneIds.push(id);
-    const chapterId = chapterIds[Math.floor(i / (spec.scenes / spec.chapters))] ?? chapterIds[0]!;
+    const chapterIndex = Math.min(spec.chapters - 1, Math.floor(i / (spec.scenes / spec.chapters)));
+    const chapterId = chapterIds[chapterIndex] ?? chapterIds[0]!;
     const body = prose(spec.wordsPerScene);
     totalWords += spec.wordsPerScene;
     if (i % 40 === 0) probeTerms.add(body.split(' ')[3]!.toLowerCase().replace(/\W/g, ''));
@@ -175,11 +178,15 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
       sql: `INSERT INTO scene (id,chapter_id,title,sort_key,global_rank,summary,purpose,pov_entity_id,
               tension,word_count,status,content_text,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      params: [id, chapterId, `Scene ${i + 1}`, String(i).padStart(6, '0'), String(i).padStart(9, '0'),
+      params: [id, chapterId, `Scene ${i + 1}`, sceneKeys[i]!,
+        // The materialised rank, from the one function that knows how to
+        // compose it — the same one the rebuilder in src/index uses, so a
+        // rebuild cannot reorder a corpus the generator just laid out.
+        sceneGlobalRank({ bookKey, chapterKey: chapterKeys[chapterIndex]!, sceneKey: sceneKeys[i]! }),
         prose(30), prose(12), entityIds[i % 4]!, Math.floor(r() * 11), spec.wordsPerScene, 'drafted', text, now, now],
     });
     b.push({
-      sql: `INSERT INTO scene_fts (scene_id,title,content_text) VALUES (?,?,?)`,
+      sql: 'INSERT INTO scene_fts (scene_id,title,content_text) VALUES (?,?,?)',
       params: [id, `Scene ${i + 1}`, text],
     });
 
@@ -198,7 +205,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
     for (let m = 0; m < 50; m++) {
       const eIdx = Math.floor(Math.abs(r() ** 2) * spec.entities);
       b.push({
-        sql: `INSERT INTO mention (id,scene_id,entity_id,role,method,created_at) VALUES (?,?,?,?,?,?)`,
+        sql: 'INSERT INTO mention (id,scene_id,entity_id,role,method,created_at) VALUES (?,?,?,?,?,?)',
         params: [`mn_${String(i).padStart(5, '0')}_${m}`, id, entityIds[eIdx] ?? entityIds[0]!,
           m === 0 ? 'pov' : pick(roles), 'alias_match', now],
       });
@@ -216,7 +223,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
               established_at_scene_id,revealed_at_scene_id,spoiler_weight,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?)`,
       params: [`fa_${String(i).padStart(5, '0')}`, projectId,
-        entityIds[Math.floor(r() * spec.entities)]!, pick(['is','knows','owns','fears','killed','loves']),
+        entityIds[Math.floor(r() * spec.entities)]!, pick(['is', 'knows', 'owns', 'fears', 'killed', 'loves']),
         prose(14), sceneIds[est]!, sceneIds[rev]!, Math.floor(r() * 4), now, now],
     });
   }

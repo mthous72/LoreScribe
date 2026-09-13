@@ -17,7 +17,7 @@ describe('tokenising', () => {
   });
 
   it('strips headings and scene markers before analysing', () => {
-    const t = tokenise('## Chapter One\nScene 3: The Kiln\nThe rain fell.');
+    const t = tokenise('## Chapter One\nScene 3: The Long Hall\nThe rain fell.');
     expect(t.sentences).toEqual([['the', 'rain', 'fell']]);
   });
 
@@ -144,6 +144,7 @@ describe('revision report', () => {
     const rows = overuseReport([sentence, sentence, sentence].join('\n\n'));
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0]!.occurrences).toBeGreaterThanOrEqual(3);
-    expect(rows).toEqual([...rows].sort((a, b) => b.occurrences - a.occurrences || a.phrase.localeCompare(b.phrase)));
+    expect(rows).toEqual(
+      [...rows].sort((a, b) => b.occurrences - a.occurrences || a.phrase.localeCompare(b.phrase)));
   });
 });

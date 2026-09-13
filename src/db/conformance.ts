@@ -85,7 +85,7 @@ export async function runConformance(driver: SqlDriver): Promise<Case[]> {
   });
 
   await check('text with quotes, newlines and unicode survives binding', async () => {
-    const nasty = `it's "quoted"\n\ttabbed — em-dash · 日本語 · ümlaut`;
+    const nasty = 'it\'s "quoted"\n\ttabbed — em-dash · 日本語 · ümlaut';
     await driver.query('INSERT INTO _conf (id,s) VALUES (?,?)', [4, nasty], 'run');
     const { rows } = await driver.query('SELECT s FROM _conf WHERE id = ?', [4], 'get');
     assert((rows as string[])[0] === nasty, 'text did not round-trip');
@@ -123,7 +123,7 @@ export async function runConformance(driver: SqlDriver): Promise<Case[]> {
       INSERT INTO _conf_multi_a VALUES (1);
     `);
     const { rows } = await driver.query(
-      `SELECT COUNT(*) FROM sqlite_master WHERE name IN ('_conf_multi_a','_conf_multi_b')`, [], 'get');
+      'SELECT COUNT(*) FROM sqlite_master WHERE name IN (\'_conf_multi_a\',\'_conf_multi_b\')', [], 'get');
     assert((rows as number[])[0] === 2, 'only some statements ran');
     await driver.exec('DROP TABLE _conf_multi_a; DROP TABLE _conf_multi_b;');
     return undefined;
@@ -139,9 +139,9 @@ export async function runConformance(driver: SqlDriver): Promise<Case[]> {
   });
 
   await check('FTS5 is compiled in', async () => {
-    await driver.exec(`CREATE VIRTUAL TABLE _conf_fts USING fts5(body)`);
+    await driver.exec('CREATE VIRTUAL TABLE _conf_fts USING fts5(body)');
     await driver.query('INSERT INTO _conf_fts (body) VALUES (?)', ['the grey warden rides'], 'run');
-    const { rows } = await driver.query(`SELECT COUNT(*) FROM _conf_fts WHERE _conf_fts MATCH ?`, ['warden'], 'get');
+    const { rows } = await driver.query('SELECT COUNT(*) FROM _conf_fts WHERE _conf_fts MATCH ?', ['warden'], 'get');
     assert((rows as number[])[0] === 1, 'FTS5 match failed');
     await driver.exec('DROP TABLE _conf_fts');
     return undefined;

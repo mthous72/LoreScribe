@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { runSpike, type SpikeResult } from '../spike/measure';
 import { DEFAULT_SPEC } from '../spike/corpus';
 import { BackgroundTestPanel } from './BackgroundTestPanel';
+import { EditorSpikePanel } from './EditorSpikePanel';
 
 /**
  * Gate A's harness, shipped rather than thrown away. On a phone this is the only
@@ -20,6 +21,7 @@ export function DiagnosticsPage() {
       {/* R2b first: it is the open question, and it is the one that needs a
           real device rather than a test runner. docs/15 §1. */}
       <BackgroundTestPanel />
+      <EditorSpikePanel />
 
       <h2 className="mt-12 text-base font-semibold">Performance spike</h2>
       <p className="mt-2 text-sm opacity-70">

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useDb } from './DbProvider';
 import type { Project } from '../data/projectRepository';
+import { BackupPanel } from './BackupPanel';
+import { IndexPanel } from './IndexPanel';
 
 export function ProjectsPage() {
   const db = useDb();
@@ -73,6 +75,9 @@ export function ProjectsPage() {
         )}
       </ul>
 
+      {projects[0] && <BackupPanel projectId={projects[0].id} projectTitle={projects[0].title} />}
+      {projects[0] && <IndexPanel projectId={projects[0].id} />}
+
       <dl className="mt-10 grid grid-cols-2 gap-x-4 gap-y-2 text-xs opacity-70 sm:grid-cols-4">
         <Stat label="op_log rows" value={String(ops)} />
         <Stat label="journal mode" value={diagnostics.journalMode} />
@@ -82,6 +87,16 @@ export function ProjectsPage() {
           value={storage.persisted ? 'granted' : 'refused'}
         />
       </dl>
+      {db.uncleanShutdown && (
+        // The row outlived the session that wrote it, which means the previous
+        // one never released. Worth saying plainly rather than silently
+        // overwriting the evidence.
+        <p className="mt-3 rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+          The last session ended without closing the database — a crash, or a
+          tab killed by the system. Nothing appears lost; committed work is
+          still here. If anything looks wrong, say so before writing more.
+        </p>
+      )}
       {!storage.persisted && (
         // Say so plainly rather than assuming success. The browser decides this
         // on heuristics and never prompts; D9's scheduled backup is what makes

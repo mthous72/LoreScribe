@@ -216,6 +216,22 @@ force-push or a deletion commit — assume anything pushed is permanently public
   never a private branch or a "we'll clean it up before merging" branch of this
   one.
 
+**Recorded because it happened.** A Phase 1 audit found two names drawn from
+the real story bible sitting in committed test fixtures — a character's name and
+a word from the book's title, used as filler in a sanitiser test and a mention
+test. No prose, no plot, nothing that reveals anything; both are ordinary
+English words, and the practical exposure is nil. They are corrected, and they
+are written down here anyway, because the interesting part is the mechanism: I
+had read that bible, needed a plausible name, and one surfaced. Nobody decided
+to use it.
+
+That is what this rule is actually defending against — not a careless paste, but
+recall. The control is correspondingly unglamorous: fixture names are invented
+deliberately, the synthetic cast is the Grey Warden set named in
+[doc 01](01-architecture.md), and "it sounded right" is not where a fixture name
+comes from. There is no mechanical check available, because building one would
+require the very content this rule keeps out of the repository.
+
 ### D15 — The mobile editor is not a lightweight capture tool; it's a full peer
 Superseded assumption: doc 07 item 25 originally planned phone = capture and
 review, desktop = drafting, on the reasoning that thumb-typing 2000 words isn't
@@ -300,3 +316,107 @@ a desktop wrapper." But Tauri v2 has mobile targets and **no confirmable
 first-party PWA story**, so falling back to a native shell may mean giving up the
 web build rather than keeping both. This is an argument for taking the Phase 0
 spike seriously, not for flinching from its answer.
+
+### D19 — WAL is on for the web after all, and three licences joined the allowlist
+*Supersedes the WAL guidance in [D18](10-decisions.md) and
+[doc 01](01-architecture.md). Recorded because doc 10's own rule is that
+superseding means adding an entry, not editing one — and until this was written
+D18 read as live guidance contradicting what actually ships.*
+
+**WAL.** D18 reasoned that `opfs-sahpool` is single-connection by construction,
+so WAL's concurrency benefit is unavailable and it is not worth enabling. The
+premise is right and the conclusion was wrong: WAL's *per-commit* cost benefit
+is independent of concurrency, and autosave is one row per commit. Measured,
+autosave p95 is 6.1 ms under `delete` and 2.6 ms under `wal`
+([doc 16](16-phase-0-spike-report.md) §1). WAL ships, with
+`locking_mode=exclusive` applied first on every connection — an ordering that
+is not advice: without it a WAL database cannot be reopened at all.
+
+**Three licences.** [Doc 13 §4](13-legal-and-compliance.md) lists the dependency
+allowlist as MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, Unlicense, CC0 and public
+domain. `tools/check-licences.mjs` also permits **BlueOak-1.0.0, MIT-0 and
+Python-2.0**, which were added while getting the check to pass rather than by a
+decision. All three are permissive and non-copyleft, so the boundary doc 13
+actually cares about — nothing copyleft foreclosing a later release — is intact.
+They are named here so the allowlist and the document that describes it agree,
+and so the next addition has to be a decision rather than a convenience.
+
+### D20 — Prettier is waived, and formatting is enforced in ESLint instead
+*Closes the Gate D2 gap recorded in [doc 15 §4](15-phase-0-plan.md): "Prettier —
+dropped silently. Never installed, never waived." The finding was not that
+Prettier is missing. It was that nobody decided.*
+
+Gate D2 listed "ESLint, Prettier, `tsc --strict`" as a bundle, without asking
+whether a whole-file reformatter suits a codebase that uses layout as
+information. It was tried before being waived, so this is measured rather than
+assumed: Prettier 3.9 at `printWidth: 100` rewrote **62 files, +2,599 / −906
+lines**, and the expansion landed almost entirely on constructs that are compact
+on purpose.
+
+- `ARCHIVE_TABLES` in `src/data/archive.ts` is eighteen rows of the same five
+  keys, one per line, and reviewing it means scanning a column. Prettier turns
+  it into ninety lines and the column disappears.
+- Every `try { … } catch { /* going anyway */ }` becomes a three-line block, so
+  the comment saying "ignore this" ends up more visually prominent than the code
+  it guards. `src/app/DbProvider.tsx` went from 150 lines to 224 this way.
+- The carry and borrow loops in `src/domain/sortKey.ts` read as arithmetic when
+  each branch is one line and as control flow when each is four.
+
+Against that, Prettier buys freedom from formatting decisions. Worth a lot on a
+large team; worth less here, and not worth 2,599 lines of churn through
+`git blame` in a repository whose documentation strategy is that the reasoning
+lives in the history.
+
+**What the gate actually wanted** is that formatting is machine-checked and never
+argued about in review, and *that* is now true, which it was not before this
+decision. `@stylistic/eslint-plugin` enforces the properties that genuinely vary
+between hands — quotes, semicolons, indentation, trailing commas and whitespace,
+final newline, a 110-column limit that comments are not exempt from — and CI
+already runs `npm run lint`. Applying it found 99 real violations. Line
+*packing* stays with the author.
+
+The honest cost: someone will eventually want to pack a line the reviewer would
+not. That is one small argument occasionally, against a permanent loss of the
+layouts above. If this repository ever grows past a handful of contributors,
+revisit it — the reason recorded here is about size and about layout carrying
+meaning, and the first of those can change.
+
+### D21 — The PWA is built, and the service worker never takes over a live page
+*Closes a Phase 1 audit finding: [doc 01](01-architecture.md) and
+[D7](10-decisions.md)/[D8](10-decisions.md) have said "ships as an installable
+PWA" and "works offline" since the first commit, and there was no manifest, no
+icons and no service worker. Both statements were false.*
+
+**Built.** `public/manifest.webmanifest` with 192/512 and maskable icons
+(`tools/render-icons.mjs` rasterises them from SVG using the Chromium already
+present for Playwright, run by hand and the PNGs committed), a generated
+`sw.js`, registration in `src/pwa/register.ts`, and `tests/pwa.spec.ts` covering
+each claim so neither can go quietly false again. Every URL in the manifest is
+relative, so one build serves Pages under `/LoreScribe/` and a Capacitor bundle
+under `./`; the Pages workflow now fails if the manifest, the worker or the
+icons are not actually served, because a base-path mistake breaks installability
+silently and nobody notices until a writer is somewhere without signal.
+
+**Not `vite-plugin-pwa`.** The usual answer, and a reasonable one. Rejected for
+two reasons: thirty transitive packages for sixty lines of cache handling in a
+repository that licence-audits its tree, and — the deciding one — the update
+policy is not the default and is the part that matters here.
+
+**The update waits.** No `skipWaiting` on install, no claim on an update. A
+worker that activates immediately swaps the asset bundle under a page that is
+already running, and since that page fetches its database worker and lazily
+imported chunks by hashed URL — hashes a Pages deploy removes — it can break
+mid-sentence. It would also let an old shell run against a database `migrate()`
+has already moved forward, which is a real hazard rather than a cosmetic one.
+So the new version sits in `waiting` and the UI offers a reload the writer takes
+when they are at a stopping point. The first install still claims the page, so
+offline works without asking for a reload before it will.
+
+**One bug worth keeping.** The first working version cached everything correctly
+and failed offline anyway: the servers send `Vary: Origin` on static assets, the
+precache stored those responses against a request with no `Origin` header, and a
+module script from the page sends one — so strict `Vary` matching missed *every*
+asset while the cache sat there full. `caches.match(..., { ignoreVary: true })`
+fixes it, and it is safe precisely because the entries are content-hashed files
+whose URL is their whole identity. A PWA that claims offline and fails offline
+is worse than one that claims nothing, and only the test caught it.

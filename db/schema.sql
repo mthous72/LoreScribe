@@ -460,14 +460,21 @@ CREATE TABLE index_state (
   last_error TEXT
 );
 
--- Single-writer lock. The opfs-sahpool VFS takes exclusive sync access handles,
--- so a second tab on the same project fails at the storage layer with an opaque
--- error. Claim the lock with a heartbeat and show a real "open elsewhere" screen.
-CREATE TABLE project_lock (
-  project_id TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
-  holder_id TEXT NOT NULL,           -- tab/device identifier
+-- One database, one writer. Scoped to the FILE, not to a project, because the
+-- file is what is contended: opfs-sahpool pre-opens every handle in its pool,
+-- so a second context is refused before it can reach any individual project.
+-- The previous project_lock modelled a granularity the storage engine does not
+-- have, and its foreign key made it unwritable before a project existed.
+--
+-- This row does NOT grant access. Web Locks does that (src/lock/databaseLock.ts),
+-- and the losing context cannot read this table anyway — it has no database.
+-- What the row is for is the other direction: still being here when a new
+-- session opens is evidence the previous one died without releasing.
+CREATE TABLE session_lock (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  holder_id    TEXT NOT NULL,
   holder_label TEXT,                 -- human-readable, for the takeover prompt
-  acquired_at INTEGER NOT NULL,
+  acquired_at  INTEGER NOT NULL,
   heartbeat_at INTEGER NOT NULL
 );
 
@@ -571,7 +578,12 @@ CREATE VIRTUAL TABLE codex_fts USING fts5(
 -- ============================================================ 10. VIEWS
 
 -- Facts visible to the reader at a given scene rank (bind :rank).
-CREATE VIEW v_fact_reader_visible AS
+-- Renamed from v_fact_reader_visible, which promised a filter it cannot apply:
+-- a SQLite view takes no parameters, so "visible at scene rank :r" is not
+-- expressible here. This attaches the two ranks the spoiler rule needs and
+-- leaves the comparison to the caller, which is the scene brief compiler --
+-- the one place that knows which scene it is compiling for.
+CREATE VIEW v_fact_ranks AS
 SELECT f.*, es.global_rank AS established_rank, rs.global_rank AS revealed_rank
 FROM fact f
 LEFT JOIN scene es ON es.id = f.established_at_scene_id
@@ -600,8 +612,15 @@ FROM fact a JOIN fact b
 WHERE a.deleted_at IS NULL AND b.deleted_at IS NULL
   AND a.invalidated_at_scene_id IS NULL AND b.invalidated_at_scene_id IS NULL
   AND a.supersedes_fact_id IS NOT b.id AND b.supersedes_fact_id IS NOT a.id
-  AND IFNULL(a.object_text,'') <> IFNULL(b.object_text,'')
-  AND IFNULL(a.object_entity_id,'') <> IFNULL(b.object_entity_id,'');
+  -- OR, not AND. A fact's object is EITHER literal text OR an entity, never
+  -- both, so requiring a difference on both columns excluded every shape the
+  -- model supports: a literal pair has object_entity_id NULL on both sides and
+  -- compares equal, an entity pair has object_text NULL on both sides and does
+  -- the same. The view returned the empty set for everything, which is
+  -- indistinguishable from "no contradictions" -- the worst way for a check to
+  -- fail. Verified by execution before and after.
+  AND (IFNULL(a.object_text,'') <> IFNULL(b.object_text,'')
+       OR IFNULL(a.object_entity_id,'') <> IFNULL(b.object_entity_id,''));
 
 -- Reader promises still outstanding, with how long they have been open.
 CREATE VIEW v_open_threads AS

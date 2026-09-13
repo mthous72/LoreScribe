@@ -11,14 +11,19 @@
     "typecheck": "tsc --noEmit",
     "spike": "playwright test",
     "lint": "eslint .",
+    "format": "eslint . --fix",
     "licences": "node tools/check-licences.mjs",
     "check": "npm run typecheck && npm run lint && npm run licences && npm run test:unit",
     "test": "vitest run && playwright test",
     "test:pages": "playwright test -c playwright.pages.config.ts",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:live": "playwright test -c playwright.live.config.ts"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "drizzle-orm": "0.45.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -27,6 +32,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.63.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.20.2",
     "@types/react": "^19.3.0",
