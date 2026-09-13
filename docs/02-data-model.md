@@ -239,9 +239,41 @@ must always be safe — it is a button in settings, not a support incident.
 against the project file's, rebuilt wholesale on mismatch. The documents are the
 truth; the index is an optimisation. See [doc 11](11-novelwriter-review.md).)
 
+**Built** — `src/index/indexState.ts` (the revision comparison and the stale
+flag), `src/index/rebuild.ts` (one rebuilder per kind), `src/app/IndexPanel.tsx`
+(the settings button). Two invariants make "always safe" true rather than
+aspirational, and both are tested against the real schema in
+`src/index/rebuild.test.ts`:
+
+- **A rebuilder deletes only what it produced.** A `mention` the writer
+  confirmed, or one placed explicitly by the prose, is authored evidence and
+  survives any number of rebuilds; only unconfirmed `alias_match` rows are the
+  matcher's to replace. Rebuilding `scene.global_rank` does not bump `rev` or
+  write `op_log` either — the rank is a function of rows that were already
+  logged, so logging it again would make every rebuild look like the writer
+  edited every scene.
+- **A rebuild is restartable.** The kind is marked stale on the way in and
+  cleared only on success, so a tab that dies halfway leaves a flag saying
+  "half-built" rather than a table that looks finished.
+
+Rebuilding is offered, not automatic: detection runs on open, the rebuild waits
+for the button. A full pass on a 150,000-word project is seconds the writer did
+not ask for, and one that starts by itself cannot be declined when it is going
+wrong. `embedding` has no rebuilder until Phase 3 ships a model, and the panel
+says so instead of offering a button that succeeds instantly and builds
+nothing.
+
 ## 9c. One writer at a time
 
-`project_lock` holds a heartbeat and a device label. This is not future-proofing
+`session_lock` holds a heartbeat and a device label — one row, scoped to the
+FILE rather than to a project, because the file is what is contended:
+`opfs-sahpool` pre-opens every handle in its pool, so a second context is
+refused before it can reach any individual project. (It was `project_lock`
+until that was found to model a granularity the storage engine does not have.)
+Note what the row is and is not: Web Locks grants access
+(`src/lock/databaseLock.ts`); this row is evidence, and finding it still here
+when a new session opens means the previous one died without releasing. This is
+not future-proofing
 for collaboration — it is required *now*, because the `opfs-sahpool` VFS takes
 exclusive sync access handles and a second browser tab on the same project
 otherwise dies with an opaque storage error. Claim on open, heartbeat while

@@ -254,11 +254,25 @@ surprising share of real problems.
 lexicographically-sortable string key (LexoRank style: `a0`, `a0m`, `a1`), so
 inserting between two siblings mints a midpoint key without renumbering anything.
 Rebalance only when a key exceeds a length threshold. `scene.global_rank` is the
-materialised `part|chapter|scene` triple and is **derived** — recomputed on any
-structural move, and rebuildable wholesale.
+materialised `book|part|chapter|scene` chain and is **derived** — recomputed on
+any structural move, and rebuildable wholesale. It carries the book key because
+a project can hold a series: without it, scene 1 of book 2 would sort against
+scene 1 of book 1 rather than after it. Segments are length-prefixed, so a
+chapter with no part contributes an empty segment that sorts below any real one,
+and a short key can never sort above a longer one sharing its prefix.
+`sceneGlobalRank()` in `src/domain/sortKey.ts` is the only place this is
+composed — two encodings for one column has happened once already, and the
+symptom was a silently mis-ordered manuscript.
 
 **Index rebuild.** `mention`, `scene_fts`, `embedding` and `scene.global_rank` are
 caches ([doc 02 §9b](02-data-model.md)). Each carries an algorithm revision in
 `index_state`. Bump the revision when the producing algorithm changes; existing
 rows are stale by definition and get rebuilt. A full rebuild must always be
 available and always safe — settings button, not support incident.
+
+Built in `src/index/` (see [doc 02 §9b](02-data-model.md) for the two invariants
+that make "safe" true). The revisions live in one table, `REVISIONS` in
+`src/index/indexState.ts`, and are deliberately not schema versions:
+`user_version` says what shape the tables have, a revision says what code filled
+them. Fixing a word-boundary bug in the alias matcher changes no table at all
+and still invalidates every `mention` row in every project.

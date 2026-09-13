@@ -1,4 +1,5 @@
 import type { SqlDriver } from '../db/driver';
+import { markStale, DERIVED_KINDS } from '../index/indexState';
 import {
   ARCHIVE_TABLES, serialiseHeader, serialiseRow, serialiseFooter,
   parseArchive, rowsByTable, type ParsedArchive,
@@ -116,6 +117,7 @@ export async function restoreArchive(driver: SqlDriver, text: string): Promise<R
       }
     }
   }
+  await markStale(driver, DERIVED_KINDS);
   return result;
 }
 

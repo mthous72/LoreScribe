@@ -264,3 +264,22 @@ export function globalRank(parts: readonly (string | null | undefined)[]): strin
     })
     .join('');
 }
+
+/**
+ * `scene.global_rank` from the keys of the things above it.
+ *
+ * One function, so the value can only be composed one way. Doc 12 calls this
+ * the "part|chapter|scene triple", which quietly assumes a single book — a
+ * project can hold a series, and without the book key scene 1 of book 2 would
+ * sort against scene 1 of book 1 rather than after it. So the composition is
+ * book|part|chapter|scene, and a chapter with no part contributes an empty
+ * segment, which the length prefix sorts below any real one.
+ */
+export function sceneGlobalRank(keys: {
+  bookKey: string;
+  partKey?: string | null;
+  chapterKey: string;
+  sceneKey: string;
+}): string {
+  return globalRank([keys.bookKey, keys.partKey ?? '', keys.chapterKey, keys.sceneKey]);
+}

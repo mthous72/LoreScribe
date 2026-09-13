@@ -1,4 +1,4 @@
-import { firstKey, initialKeys, globalRank } from '../domain/sortKey';
+import { firstKey, initialKeys, sceneGlobalRank } from '../domain/sortKey';
 
 /**
  * Deterministic synthetic corpus.
@@ -100,6 +100,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   const batches: { sql: string; params: unknown[] }[][] = [];
   const projectId = 'pr_0001';
   const bookId = 'bk_0001';
+  const bookKey = firstKey();
 
   // entity_type is seeded by migration 002 — the corpus used to insert its own
   // rows here because the schema shipped none, which is how that gap was found.
@@ -110,7 +111,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   });
   head.push({
     sql: `INSERT INTO book (id,project_id,title,sort_key,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
-    params: [bookId, projectId, 'Book One', firstKey(), now, now],
+    params: [bookId, projectId, 'Book One', bookKey, now, now],
   });
   batches.push(head);
 
@@ -178,10 +179,10 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
               tension,word_count,status,content_text,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       params: [id, chapterId, `Scene ${i + 1}`, sceneKeys[i]!,
-        // The materialised part|chapter|scene triple, from the one function
-        // that knows how to build it. There is no part level here, so the
-        // book's key stands in for it.
-        globalRank([firstKey(), chapterKeys[chapterIndex]!, sceneKeys[i]!]),
+        // The materialised rank, from the one function that knows how to
+        // compose it — the same one the rebuilder in src/index uses, so a
+        // rebuild cannot reorder a corpus the generator just laid out.
+        sceneGlobalRank({ bookKey, chapterKey: chapterKeys[chapterIndex]!, sceneKey: sceneKeys[i]! }),
         prose(30), prose(12), entityIds[i % 4]!, Math.floor(r() * 11), spec.wordsPerScene, 'drafted', text, now, now],
     });
     b.push({

@@ -114,7 +114,9 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   partially recoverable and the importer salvages what it can instead of refusing
   the file. A backup you can't open in twelve months isn't a backup.
 - **Index rebuild path** for all derived data (`mention`, FTS, embeddings, ranks),
-  driven by `index_state` algorithm revisions.
+  driven by `index_state` algorithm revisions. *(Built — `src/index/`, surfaced
+  as a settings panel. `embedding` has no rebuilder until Phase 3 brings a
+  model, and says so rather than pretending.)*
 - Word counting as a specified, tested algorithm — not `split(" ")` — used
   identically by goals, stats and budget estimates.
 - **Done when:** LoreScribe is already a usable novel-writing app with the best
