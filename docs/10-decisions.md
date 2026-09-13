@@ -160,3 +160,143 @@ mitigated instead:
 - **scheduled automatic backup export is not optional** — with no server and no
   sync, an evicted OPFS database with no recent export is total loss. This moves
   from backlog item C26 into Phase 1.
+
+### D12 — No at-rest database encryption; device security is the boundary
+The project database is not encrypted beyond the OS's own protections (device
+passcode, FileVault/BitLocker/Android's disk encryption). The API key stays
+encrypted regardless ([D2](10-decisions.md), doc 01) — that's a credential, a
+different risk class from the manuscript.
+
+The alternative was a passphrase-gated database, unlocked each session. Rejected:
+meaningful extra engineering (key derivation, an unlock screen, a recovery story
+for a forgotten passphrase with no server to reset it against), a friction cost
+paid on every single app open, for a personal tool on the writer's own devices
+where the OS already provides this. Revisit if the device-trust assumption ever
+changes — a shared or borrowed device, for instance.
+
+### D13 — Android is the primary target; desktop/web is secondary and best-effort
+Testing and polish priority go to a recent Android phone (the last ~3 years —
+Android 12/API 31 and up). Desktop browser support is assumed Chromium-family
+(Chrome/Edge) as the safer bet for the `opfs-sahpool` VFS, but is not the daily
+driver being designed for and gets tested opportunistically rather than as a
+release gate.
+
+This narrows the Phase 0 spike's required scope: confirming SAHPool and the
+multi-tab lock on Chromium is the bar, not a cross-browser matrix. If Safari or
+another engine turns out to matter later, that reopens this decision and possibly
+[D8](10-decisions.md), not the other way around.
+
+### D14 — The public repo never contains manuscript or story-bible content
+LoreScribe's repository is public ([confirmed 2026-09-13](08-roadmap.md)), which
+was fine for a design plan and a schema but is a real hazard for the thing the
+software actually manages: a writer's unpublished manuscript, which may be
+sensitive, explicit, or simply not the writer's to publish yet. Nothing about D7
+("personal, not published") extended to the *content* — only to the software not
+having a store listing, marketing, or a support burden. The two are easy to
+conflate and must not be.
+
+**Rule:** no manuscript, story-bible, or fixture content derived from a real book —
+the writer's own or anyone else's — is ever committed to this repository, in any
+branch, at any point in its history. This is stricter than "delete it later,"
+because a public repo's history is not truly private once pushed, even after a
+force-push or a deletion commit — assume anything pushed is permanently public.
+
+**What this means in practice:**
+- Real fixture material (a real manuscript used for the Phase 2 decisive test,
+  per [doc 08](08-roadmap.md)) lives outside the repository entirely — a local
+  directory, referenced by an environment variable or a path the test harness
+  reads at run time, never checked in. `.gitignore` is a backstop, not the
+  control; the control is that it's never `git add`ed in the first place.
+- The synthetic fixture ("The Grey Warden," doc 01) is unaffected — it's invented
+  for testing and has no privacy exposure, so it stays in the repo as normal.
+- Screenshots, example data, or docs illustrating a feature use invented content,
+  never a real project's.
+- If this project ever needs a private companion repo for real working data
+  (fixtures, personal backups, drafts), that's a separate, private repository —
+  never a private branch or a "we'll clean it up before merging" branch of this
+  one.
+
+### D15 — The mobile editor is not a lightweight capture tool; it's a full peer
+Superseded assumption: doc 07 item 25 originally planned phone = capture and
+review, desktop = drafting, on the reasoning that thumb-typing 2000 words isn't
+worth optimising for. Drafting in practice happens on both surfaces roughly
+evenly, so that assumption is wrong and the plan changes with it: the phone
+editor gets full investment from **Phase 1**, not a stripped-down mode added
+later in Phase 6. Scene editing, the brief inspector, and generation all need to
+work well at phone width from the start — this was already a responsive-design
+requirement everywhere else in the plan; it now also applies to feature
+completeness, not just layout.
+
+### D16 — Desktop gets no dedicated QA matrix; the storage spike still must hold
+Two of the round's answers only look contradictory: drafting happens on both
+surfaces (D15), but desktop is explicitly *not* a testing target (D13's own
+wording). The resolution is a distinction between **where writing happens** and
+**where reliability is verified before shipping**:
+
+- Android is the release gate: real-device testing (a physical phone is
+  available — see below), every feature checked there before it's considered
+  done.
+- Desktop/web is used for real drafting, but gets no dedicated cross-browser QA
+  pass, no compatibility matrix, and issues specific to it are fixed reactively
+  as they turn up rather than pre-empted.
+
+**That distinction cannot extend to the Phase 0 storage spike itself.** The
+`opfs-sahpool` VFS and the multi-tab lock ([D8](10-decisions.md),
+[doc 11](11-novelwriter-review.md)) are exactly the mechanism protecting real
+manuscripts from silent loss, and if desktop drafting is real and regular, that
+spike has to be validated against whatever browser actually does the drafting —
+skipping it there would be the one silent-failure mode D9/D14 exist to prevent,
+not a QA nicety to skip. Absent a named browser, **Chrome is the assumed
+validation target** — the same Chromium family D13 already called the safer bet,
+and the single most likely daily browser. This is a stated assumption, not a
+confirmed fact: if the real daily browser turns out to be something else, say so
+before Phase 0's spike runs, since that one validation is load-bearing in a way
+the rest of desktop support isn't.
+
+**Android testing is against a real device.** A physical phone is available, so
+Phase 6 targets it directly rather than an emulator-first plan — more honest
+about real eviction pressure, battery and OS behaviour than an emulator can be.
+
+### D17 — Default spend cap: conservative, visible, adjustable — not a real budget
+An OpenRouter account and key are already in hand, with no fixed budget opinion,
+so the app picks a conservative default rather than leaving the field blank:
+a **$5/day soft warning** and a **$20/day hard stop**, both per-project, both
+editable in one tap from the spend meter that triggered them. This is a
+runaway-loop guard, not a real budget — it exists so a retry bug or an
+oversized batch extraction fails loudly and cheaply instead of quietly running
+up a bill, and it is expected to be raised the first time it gets in the way of
+legitimate work. Utility roles (summarise, extract, critique, embed) default to
+the cheapest capable model on first run, per [doc 06](06-ai-pipeline.md); drafting
+does not, since quality there is the whole point.
+
+### D18 — The storage bet is confirmed, and it costs more to reverse than it looked
+*Confirms [D8](10-decisions.md); does not supersede it. Detail and sources in
+[doc 15 §7](15-phase-0-plan.md).*
+
+D8 chose `opfs-sahpool` on the reasoning that static hosting can't set COOP/COEP.
+That reasoning was checked against sqlite.org rather than left as an assumption,
+and it holds exactly: the VFS "does not require COOP/COEP HTTP headers," and the
+documentation routes clients who can't set those headers to it specifically. Three
+things follow that were not obvious when D8 was taken.
+
+**The hosting choice doesn't permit sahpool, it forces it — and forces more
+besides.** sahpool pre-opens and holds every access handle in its pool, so it is
+*single-connection by construction*. That makes the multi-tab strategy mandatory
+rather than a nicety (a Web Lock, a `pauseVfs()` handoff, and a takeover screen
+offering *reload* rather than retry, since the failed install is cached for the
+life of the page), and it removes WAL's reason to exist on the web. One decision,
+three consequences, none of them optional.
+
+**Two drivers is now a decision with a reason, not a default.** The available
+simplification — use `@capacitor-community/sqlite` on both platforms — is a trap.
+Its web implementation holds the whole database in RAM via sql.js and **a
+committed transaction is not durable until the app calls `saveToStore()`**, while
+native persists automatically. The same repository code, run both ways, loses data
+on exactly one of them. So the `SqlDriver` split stands, and the conformance suite
+across both implementations is load-bearing rather than tidy-minded.
+
+**Reversing D8 is dearer than assumed.** The fallback ladder read "COI shim, then
+a desktop wrapper." But Tauri v2 has mobile targets and **no confirmable
+first-party PWA story**, so falling back to a native shell may mean giving up the
+web build rather than keeping both. This is an argument for taking the Phase 0
+spike seriously, not for flinching from its answer.

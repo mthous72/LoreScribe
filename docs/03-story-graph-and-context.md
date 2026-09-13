@@ -160,6 +160,19 @@ Three rules make this safe, and all three are non-negotiable:
 Write the book, and the codex grows behind you — without ever overwriting something
 you wrote by hand.
 
+**Getting an existing world in is the same pipeline, run once, by hand.** A story
+bible that predates LoreScribe is rarely unstructured — a bible organised into
+per-character files with recognisable fields (a want, a need, a past), a "who
+knows what" table, a scene-scoped note on a room's physical state, is already
+most of the way to `entity`, `arc` and `fact` rows. Two lanes, not one: recognise
+the structured sections and map them mechanically, with no model call at all —
+cheaper and more reliable than extraction, and often possible precisely because a
+careful writer's own notes already look like this. Route only the genuinely
+freeform sections — a paragraph-form story summary, a loose outline — through
+extraction. Both lanes land in the same proposal queue and the same review. See
+[doc 08](08-roadmap.md)'s Phase 2 for where this sits in the build order, and
+[D14](10-decisions.md) for why the bible itself never enters this repository.
+
 ## The Lore Digest — the brief's sibling for structural work
 
 The Scene Brief serves prose generation. Structural generation (premise, outline,

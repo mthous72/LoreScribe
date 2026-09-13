@@ -8,24 +8,55 @@ kills it. Nothing before Phase 2 should take longer than it has to.
 ---
 
 ## Phase 0 — Foundations *(~1 week)*
+
+**[Doc 15](15-phase-0-plan.md) is the executable version of this phase** — the
+gates, the measurements each one has to produce, and the stop rule. What follows
+is the summary.
+
 - **First, before anything else: the `opfs-sahpool` spike.** Static hosting can't
   set COOP/COEP, so the SharedArrayBuffer OPFS VFS is unavailable and the SAHPool
   VFS is the plan of record ([D8](10-decisions.md)). It gates the entire storage
   layer — confirm it with a real 150k-word database before writing anything on top.
-- Vite + React + TS + Tailwind + shadcn/ui; Capacitor initialised but not yet a
-  priority.
+  The corpus is **generated from a seed at run time, never committed**
+  ([D14](10-decisions.md)).
+- Vite + React + TS + Tailwind + shadcn/ui. **Capacitor is not initialised in this
+  phase** — with no native SQLite driver until Phase 6, a native build would boot
+  to an error, so "on a real Android phone" below means the PWA in Chrome on the
+  device, which is the evictable web path rather than the app-private native one.
+  The only thing Phase 0 owes Phase 6 is a build base path that is a switch rather
+  than a constant ([doc 15 §3d](15-phase-0-plan.md)).
 - `SqlDriver` interface with the sqlite-wasm implementation; Drizzle; the migration
-  runner; `db/schema.sql` as migration 001.
+  runner; `db/schema.sql` as migration 001 — **minus its pragmas**, which are
+  per-connection settings that differ by engine and belong in the driver
+  ([doc 15 §3a](15-phase-0-plan.md)). A **driver conformance suite** is written
+  here, against the interface rather than the implementation, so Phase 6 is
+  "make the Capacitor driver pass it" and not an excavation.
 - **Multi-tab behaviour in the same spike** — the SAHPool VFS takes exclusive
   access handles, so a second tab must be detected and handled, not left to fail
   with a storage error. `project_lock` plus the Web Locks API, with a real "open in
-  another tab" screen and takeover ([doc 11](11-novelwriter-review.md)).
+  another tab" screen and takeover ([doc 11](11-novelwriter-review.md)). The lease
+  semantics behind `project_lock`'s heartbeat get specified here rather than
+  inherited from whatever the first implementation happened to do.
+- **Backgrounding on Android**, in the same spike: Chrome backgrounds tabs
+  aggressively and the VFS holds exclusive sync access handles. If those don't
+  survive a call or an app switch, the web path on the primary platform is
+  unusable and Capacitor moves forward into this phase.
 - `navigator.storage.persist()` on first project creation, with the result surfaced
   honestly rather than assumed.
-- Repository layer and the `op_log` write path.
+- Repository layer (`project` only) and the `op_log` write path.
 - Vitest, Playwright, CI, lint/format, and a dependency-licence allowlist check
   ([doc 13 §4](13-legal-and-compliance.md)).
-- **Done when:** a project can be created, persisted and reloaded after a refresh.
+- CI deploy to GitHub Pages (confirmed: the repo is public, so this needs no
+  account upgrade — the served app is a public URL, holding no data until someone
+  creates a project on that device; see [D14](10-decisions.md) for the boundary
+  this does *not* cross).
+- **Done when:** `docs/16-phase-0-spike-report.md` is committed with measured
+  numbers from three environments — local Chrome, the Pages origin on desktop,
+  and the Pages origin on the phone — and every threshold in
+  [doc 15 §4](15-phase-0-plan.md) is met or explicitly waived with a reason. A
+  project that can be created and reloaded is the *floor*, not the bar: it is true
+  of a three-row database with no lock and no size, and it would let every risk
+  this phase exists to find survive into Phase 1.
 
 ## Phase 0b — Implement the specified algorithms *(~1 week, runs alongside Phase 1)*
 
@@ -38,16 +69,21 @@ is taken from novelWriter (GPL-3) under any circumstances. Run
 Doing this before the AI work skips months of rediscovery, and five of the eight
 need no model at all, which makes Phase 1 more useful standalone.
 
-| Build | Spec | Needs a model? |
-|---|---|---|
-| Repetition guard (ban list, render, violation check, revision report) | [§1](12-algorithms.md) | no |
-| Prose sanitiser, incl. the streaming think-block state machine | [§2](12-algorithms.md) | no |
-| Word counter | [§6](12-algorithms.md) | no |
-| Readability & pacing statistics | [§7](12-algorithms.md) | no |
-| Structural gap finder | [§8](12-algorithms.md) | no |
-| Evidence verification | [§3](12-algorithms.md) | at call time |
-| Structured-output schema builders + strict detection | [§5](12-algorithms.md) | at call time |
-| Reasoning-allowance tracking | [§4](12-algorithms.md) | at call time |
+| Build | Spec | Needs a model? | State |
+|---|---|---|---|
+| Repetition guard (ban list, render, violation check, revision report) | [§1](12-algorithms.md) | no | **done** |
+| Prose sanitiser, incl. the streaming think-block state machine | [§2](12-algorithms.md) | no | **done** |
+| Word counter | [§6](12-algorithms.md) | no | **done** |
+| Readability & pacing statistics | [§7](12-algorithms.md) | no | **done** |
+| Structural gap finder | [§8](12-algorithms.md) | no | **done** |
+| Evidence verification | [§3](12-algorithms.md) | at call time | Phase 2 |
+| Structured-output schema builders + strict detection | [§5](12-algorithms.md) | at call time | Phase 2 |
+| Reasoning-allowance tracking | [§4](12-algorithms.md) | at call time | Phase 2 |
+
+All five model-free algorithms are written fresh against the spec rather than
+ported — the overlap tool reports no derived lines — with a shared
+`difflib.SequenceMatcher` ratio underneath the two that need it, pinned to
+CPython's numbers because both thresholds were calibrated against them.
 
 Tests are written **from the specification** — including the properties the spec
 calls out explicitly: the sanitiser is
@@ -81,6 +117,25 @@ never contains a proper noun, and staggered fragments merge into one phrase.
   If this phase isn't pleasant to use, no amount of AI will save it.
 
 ## Phase 2 — The Scene Brief Compiler *(~3 weeks)* ← the decisive phase
+- **Bible intake, first.** A real project (a story bible that predates LoreScribe
+  entirely, never run through LibriScribe) needs a way in before any brief can be
+  compiled against it. Two lanes, run over the same document set:
+  - **Template-aware structured parsing**, no model call: sections that already
+    follow a recognisable shape — a character file's Bio/Want/Need/Past/Arc
+    fields, a "who knows what" table, a physical-state note scoped to a scene —
+    map mechanically onto `entity`, `arc` and `fact`/`fact_knowledge` rows. This
+    is the cheap, deterministic path, and it exists because real bibles are often
+    already this well organised — worth checking for the shape before reaching
+    for a model.
+  - **Extraction for the rest** — freeform prose (a full-story summary, a loose
+    outline) goes through the same proposal-staging pipeline
+    [doc 05](05-planning-arcs-and-scenes.md) and [doc 03](03-story-graph-and-context.md)
+    describe for Phase 5, pulled forward here because Phase 2's brief compiler
+    needs a populated graph to compile anything against. Phase 5 later
+    generalises this into the automatic post-scene pass; this is its first,
+    manually-triggered use.
+  - Everything lands as proposals, reviewed once, same as any other extraction —
+    D14 applies: the bible itself never enters this public repository.
 - `ProviderAdapter` + OpenRouter adapter + secure credential storage.
 - Model profiles / roles.
 - The compiler, all nine steps, with the **brief inspector UI**.
@@ -93,9 +148,11 @@ never contains a proper noun, and staggered fragments merge into one phrase.
   respects facts established in chapter 2 and does not leak a chapter-40 reveal —
   and a big-dump control prompt fails at least one of those. Write that comparison
   down; it is the product thesis.
-- **Second control worth running:** the same manuscript through LibriScribe.
-  Importing a `.libriscribe.json` bundle is a few hours' work and gives a real
-  A/B against a working tool rather than against a strawman prompt.
+- **Second control, where it applies:** for a manuscript that already has a
+  LibriScribe project, importing its `.libriscribe.json` bundle and running the
+  same test there is a real A/B against a working tool rather than a strawman
+  prompt. Not every fixture will have one — the bible-intake path above exists
+  precisely for the case where it doesn't.
 
 ## Phase 3 — Laws *(~2 weeks)*
 - Law CRUD, scoping, presets, the six categories.
@@ -116,7 +173,9 @@ never contains a proper noun, and staggered fragments merge into one phrase.
 - Setup/payoff ledger; unrealised-beat and orphan-scene reports.
 
 ## Phase 5 — Closing the loop *(~2 weeks)*
-- Extraction service, proposal staging, non-destructive field-by-field merge.
+- Extraction service, proposal staging, non-destructive field-by-field merge — the
+  general form of the bible-intake pipeline built in Phase 2, now triggered
+  automatically after each scene rather than manually against a whole document.
 - Evidence verification applied across every AI assertion about the manuscript.
 - Narrative thread tracker (promises, setups, questions, items).
 - Batch continuity checker, including the `knows_too_early` check.
@@ -125,6 +184,8 @@ never contains a proper noun, and staggered fragments merge into one phrase.
 - Reference-material import (PDF/TXT/MD, OCR) as a non-canon source band.
 
 ## Phase 6 — Android *(~1 week)*
+- Target: a recent Android phone, last ~3 years (Android 12/API 31+) — the
+  primary platform, not a secondary one ([D13](10-decisions.md)).
 - Capacitor SQLite driver — the reason Capacitor exists in a project that ships to
   no store: app-private storage is not evictable ([D9](10-decisions.md)).
 - Keystore credentials; filesystem for media.
@@ -219,8 +280,14 @@ These came out of the LibriScribe review and apply to every phase:
 
 ## Early technical spikes worth doing before Phase 1 ends
 
-- SQLite-WASM + OPFS with a 150k-word project: query latency, editor jank,
-  storage quota behaviour, and what happens on a Safari/iOS browser.
+The first of these moved into Phase 0 proper and is specified in
+[doc 15 §4](15-phase-0-plan.md) — SQLite-WASM + OPFS at 150k words, with query
+latency, editor jank and quota behaviour as recorded numbers rather than
+impressions. Safari/iOS is deliberately **not** in it: [D13](10-decisions.md)
+scopes the target to Chromium, and if that ever changes it reopens D13 and
+possibly [D8](10-decisions.md) rather than being absorbed as a bug. The rest
+still stand:
+
 - Tiptap with a 5000-word scene plus live mention decorations: measure, don't hope.
 - OpenRouter streaming direct from a browser: CORS, cancellation, error shapes.
 - A token counter that's accurate enough across model families to budget with.

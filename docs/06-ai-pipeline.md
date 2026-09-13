@@ -43,6 +43,7 @@ Beyond "write this scene":
 | **Dialogue pass** | Rewrites only dialogue against per-character voice laws. |
 | **Brainstorm** | N divergent options for "what happens next", shown side by side. |
 | **Interview a character** | Chat with an entity, constrained to what they know as of scene S. Superb for discovering voice and for filling `fact_knowledge`. |
+| **Fill slot** | A marked span carrying its own inline instruction — "expand this beat, keep it non-explicit, hand off to a different provider for the rest" — resolved using the surrounding scene as context, without touching anything outside the span. Named after a real workflow: drafting a scene's skeleton here, leaving bracketed placeholders with per-gap instructions, and sending just those gaps to a provider whose policy permits what this one won't. Making the marker and the hand-off a feature rather than a manual convention is a small, well-evidenced win. |
 | **Critique only** | Editorial notes, no rewriting. Developmental, line, or both. |
 | **Summarise** | Scene/chapter/book summaries that feed the continuity ladder. |
 | **Name** | Names constrained by a `language` entity's rules. |
@@ -53,7 +54,9 @@ versioned so a change can be compared against the previous version's outputs.
 ## Cost and token discipline
 
 - Live token meter on the brief before sending, broken down by section.
-- Per-run cost recorded; per-project and per-day spend meters; optional hard cap.
+- Per-run cost recorded; per-project and per-day spend meters. Default caps
+  ([D17](10-decisions.md)): a **$5/day warning**, a **$20/day hard stop**, both
+  per-project and adjustable in one tap — a runaway-loop guard, not a real budget.
 - Summaries are cached and invalidated only when the underlying scene changes —
   the continuity ladder should cost nothing on a typical run.
 - Utility roles default to a cheap model; the app suggests the split on first run.

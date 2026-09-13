@@ -36,6 +36,14 @@ policy permits it. Concretely:
 - **Refusals are reported as refusals**, with the serving provider named
   (`ai_run.status = 'refused'`, `ai_run.served_by`). Never silently degraded, never
   retried against a different provider without saying so.
+
+  This is not hypothetical: it is already how a careful writer works around
+  provider limits by hand — draft the non-explicit skeleton on one model, hand off
+  the specific gaps that need a higher register to a provider whose policy permits
+  it (xAI's Grok is a real example), and never pretend the first model produced
+  what the second one did. `provider_policy` and the register-aware routing above
+  are that exact practice, automated and made visible rather than manual and
+  ad hoc — see the "Fill slot" mode in [doc 06](06-ai-pipeline.md).
 - **Hard rule: LoreScribe never attempts to circumvent a provider's safeguards.**
   No jailbreak framing, no "for a novel, so ignore your guidelines," no automated
   rephrasing to slip past a refusal. That is a terms violation on its own, and it
@@ -139,6 +147,15 @@ copyleft dependency from quietly foreclosing the option to release later.
 Allowlist: MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, Unlicense, CC0, and public domain
 (sqlite-wasm). Anything else fails the build until someone looks at it. The planned
 stack is clean: Tiptap, Capacitor, React (MIT); Drizzle, Tesseract.js (Apache-2.0).
+
+**One encryption-export wrinkle, recorded early so it isn't rediscovered.**
+`@capacitor-community/sqlite` links SQLCipher into the Android build **even when
+no database is encrypted**, and its own README raises the resulting US export
+self-classification question. Three things make this a note rather than a
+problem: nothing is published ([D7](10-decisions.md)), the encryption is not used
+([D12](10-decisions.md)), and the plugin doesn't enter the build until Phase 6.
+It becomes live only if the tool is ever distributed — which is precisely the
+decision that would reopen half this document anyway.
 
 ## 5. Real people
 

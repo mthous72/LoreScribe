@@ -44,26 +44,64 @@ actually lives.
 
 `@sqlite.org/sqlite-wasm` with OPFS on the web and `@capacitor-community/sqlite`
 on Android both speak SQLite, so Drizzle sits over a thin `SqlDriver` interface
-with two implementations. Migrations are plain numbered `.sql` files applied in a
-transaction at startup. Consequences worth knowing up front:
+with two implementations. Drizzle connects through **`sqlite-proxy`**, whose
+async callback maps cleanly onto worker `postMessage`. Migrations are plain
+numbered `.sql` files, inlined at build time and applied in a transaction at
+startup. Consequences worth knowing up front:
 
-- Run SQLite in a web worker so long queries don't jank the editor.
+- Run SQLite in a **dedicated** web worker — not merely to keep long queries off
+  the main thread, but because `createSyncAccessHandle()` exists nowhere else.
 - Large prose blobs are fine in SQLite; media (portraits, maps) go to OPFS /
   Capacitor Filesystem with only a URI in the row.
+- **The worker RPC layer is ours.** `sqlite3Worker1Promiser` was deprecated in
+  April 2026 and its author calls it "too fragile, too imperformant, and too
+  limited for any non-toy software."
+- **Drizzle's migrator cannot run here.** `drizzle-orm/sqlite-proxy/migrator`
+  imports `node:fs` and reads migration files off disk at run time. Migration
+  application is hand-rolled, with `PRAGMA user_version` as the source of truth
+  and a `schema_migration` audit log that is deliberately not load-bearing.
+- **Pragmas live in the driver, never in the schema** — they are per-connection,
+  order-sensitive, and the two engines land in different journal modes (Android
+  is WAL2 by default; sahpool needs `locking_mode=exclusive` first and gains
+  little). The driver sets them per engine and **reads the mode back** rather
+  than assuming, because `journal_mode` reports its result instead of failing.
+- **`reserveMinimumCapacity()` at startup, and `temp_store=MEMORY`.** The sahpool
+  capacity is a *file count* defaulting to 6; overflow surfaces as a misleading
+  `SQLITE_CANTOPEN`, and temp files consume slots.
+
+The details behind each of these, with sources, are in
+[doc 15 §7](15-phase-0-plan.md).
 
 ### Hosting and the cross-origin-isolation trap
 
-The app is served as a static PWA (GitHub Pages is the obvious host — the app is
-just code, the data never leaves the device). Static hosts **cannot set response
+The app is served as a static PWA on **GitHub Pages** (decided, not merely
+convenient — the repository is public, so this needs no account upgrade). The
+served page is just code; no project data reaches it until someone creates a
+project on that device, which is the boundary [D14](10-decisions.md) draws
+around what a public repo is allowed to hold. Static hosts **cannot set response
 headers**, and the SharedArrayBuffer-based OPFS VFS requires cross-origin isolation
 (`COOP: same-origin`, `COEP: require-corp`) because it uses `Atomics.wait` in a
 worker. So that VFS is unavailable.
 
 The intended path is the **`opfs-sahpool` VFS**, which uses a pre-opened pool of
-sync access handles and needs no cross-origin isolation. **This is the first Phase 0
-spike** — it gates the storage layer, so confirm it before building on it. Fallbacks
-in order: a service-worker COI shim, then revisiting the no-desktop-wrapper decision
-(a Tauri shell has no such constraint).
+sync access handles and needs no cross-origin isolation. **Confirmed against
+sqlite.org's own documentation** ([doc 15 §7](15-phase-0-plan.md)): it explicitly
+"does not require COOP/COEP HTTP headers," and the selection guidance routes
+clients that can't set those headers to precisely this VFS.
+
+So the hosting choice doesn't merely permit sahpool, it *forces* it — and that
+propagates further than it first appears. sahpool pre-opens and holds every
+handle in its pool, so it is **single-connection by construction** and offers no
+concurrency. That in turn forces a deliberate multi-tab strategy (a Web Lock, a
+`pauseVfs()`/`unpauseVfs()` handoff, and a takeover screen that offers *reload*
+rather than retry, because the failed install is cached), and it removes WAL's
+reason to exist on the web. One hosting decision, three design consequences.
+
+What Phase 0's spike still has to establish is scale and behaviour under
+backgrounding, not viability. Fallbacks, in order: a service-worker COI shim,
+which buys the plain `opfs` VFS and real concurrency; then revisiting
+the no-desktop-wrapper decision — though note that reversal is dearer than it
+looked, since Tauri v2 has mobile targets but no confirmable PWA story.
 
 ### Storage durability — the one real risk of local-first
 
@@ -135,6 +173,9 @@ sounds:
 **Credentials.** Android → Keystore via a secure-storage plugin. Web → key
 encrypted with a passphrase-derived key (WebCrypto, PBKDF2/Argon2) in IndexedDB,
 never `localStorage`, never in SQLite, never logged, never in `ai_run.params_json`.
+This is deliberately the *only* thing encrypted at rest — the project database
+itself is not ([D12](10-decisions.md)); a credential and a manuscript are
+different risk classes, and the device's own security covers the second.
 Requests go browser-direct to the provider; OpenRouter supports CORS for this.
 
 ## Offline behaviour
@@ -145,8 +186,15 @@ regardless — you can plan a whole chapter on a plane and let the drafts run la
 
 ## Testing
 
-- **Vitest** for the domain layer, with a fixture novel ("The Grey Warden") used
-  across tests: ~40 scenes, 20 entities, 150 facts, deliberate continuity traps.
+- **Vitest** for the domain layer, with a synthetic fixture novel ("The Grey
+  Warden") used across automated tests: ~40 scenes, 20 entities, 150 facts,
+  deliberate continuity traps. Invented, so it lives in the repo with no privacy
+  concern ([D14](10-decisions.md)).
+- **The Phase 2 decisive test** (doc 08) runs against a real manuscript instead,
+  precisely because a synthetic fixture is only as good as the traps someone
+  thought to plant. That manuscript is never committed to this repository — see
+  [D14](10-decisions.md) — and is read by the test harness from a local path or
+  environment variable kept outside version control.
 - **Golden-brief tests**: compiling a brief for a given scene must produce a
   stable, snapshot-compared package. This is the regression net for the core.
 - **Recorded-provider tests**: `ai_run` rows from real sessions replay as fixtures,
