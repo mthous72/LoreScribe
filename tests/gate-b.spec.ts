@@ -56,3 +56,22 @@ test('B4 — a database survives a close and reopen in every journal mode we shi
       .toMatchObject({ ok: true, reopened: 'survived', journalOnReopen: mode });
   }
 });
+
+test('B5 — migration 002 seeds the entity types, and re-running changes nothing', async ({ page }) => {
+  // entity.type_key references entity_type, and 001 ships no rows, so without
+  // this a fresh database cannot hold a single entity. docs/16.
+  await page.goto('./');
+  const state = await page.evaluate(() => window.migrationState('lorescribe-migstate')) as {
+    firstApplied: number[]; secondApplied: number[]; userVersion: number;
+    types: string[]; audit: string[];
+  };
+
+  expect(state.firstApplied).toEqual([1, 2]);
+  expect(state.secondApplied, 'a second migrate() re-applied something').toEqual([]);
+  expect(state.userVersion).toBe(2);
+  expect(state.audit).toEqual(['1:init', '2:seed_entity_types']);
+  expect(state.types).toEqual([
+    'character', 'concept', 'event', 'faction', 'item', 'language',
+    'location', 'motif', 'species', 'system', 'theme',
+  ]);
+});

@@ -16,6 +16,8 @@ declare global {
     openOnly: (vfsName: string, clearOnInit?: boolean) => Promise<unknown>;
     /** Test surface: hold the VFS open, returning a handle to release it. */
     holdOpen: (vfsName: string) => Promise<unknown>;
+    /** Test surface: what the migration runner produced. */
+    migrationState: (vfsName: string) => Promise<unknown>;
     /** Test surface: reopen after a kill and count what survived. */
     reopenAndCount: (vfsName: string, table: string) => Promise<unknown>;
     /** Test surface: release the held driver, with or without the VFS handoff. */
@@ -143,4 +145,27 @@ window.reopenUnderJournalMode = async (vfsName, mode) => {
     const err = e as SqlOpenError;
     return { ok: false, steps, reason: err.reason, message: err.message };
   }
+};
+
+window.migrationState = async (vfsName) => {
+  const { driver } = await WorkerSqlDriver.open({
+    path: '/lorescribe-migstate.db', vfsName, minimumCapacity: 8, clearOnInit: true,
+  });
+  try {
+    const first = await migrate(driver);
+    // Running it again must be a no-op: user_version already covers these.
+    const second = await migrate(driver);
+    const types = await driver.query(
+      'SELECT key FROM entity_type WHERE project_id IS NULL ORDER BY key', [], 'all');
+    const audit = await driver.query(
+      'SELECT version, name FROM schema_migration ORDER BY version', [], 'all');
+    const userVersion = await driver.query('PRAGMA user_version', [], 'get');
+    return {
+      firstApplied: first.applied.map((a) => a.version),
+      secondApplied: second.applied.map((a) => a.version),
+      userVersion: Number((userVersion.rows as unknown[])[0]),
+      types: (types.rows as unknown[][]).map((r) => String(r[0])),
+      audit: (audit.rows as unknown[][]).map((r) => `${r[0]}:${r[1]}`),
+    };
+  } finally { await driver.close(); driver.terminate(); }
 };
