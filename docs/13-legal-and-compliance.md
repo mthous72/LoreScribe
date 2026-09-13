@@ -109,26 +109,29 @@ mechanism**, and it has to be span-level to be useful:
 
 ## 4. The code itself
 
-**Referenced projects.** Settled by [D10](10-decisions.md): nothing ported,
-LoreScribe stays Unlicense. MIT's single condition — carry the notice with "copies
-or substantial portions of the Software" — is not triggered by ideas, algorithms,
-parameter values or short attributed quotations, and copyright itself does not
-reach ideas. So the obligation is nil; the *discipline* is what keeps it nil:
+**Referenced projects.** LoreScribe is MIT ([D11](10-decisions.md)). Two
+relationships, two rules:
 
-- Borrowed wording is confined to the two review documents, marked and attributed.
-  Specifications, schema and code are in our own words — verified by
-  [`tools/third_party_overlap.py`](../tools/third_party_overlap.py), which fails on
-  any 7-word overlap outside those files. Run it against fresh checkouts of the
-  reference projects before any release and whenever a review document is edited.
-- [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) reproduces LibriScribe's MIT
-  notice anyway, and states plainly that no GPL material from novelWriter is present.
-  Neither is required; both remove any argument.
-- The fork you maintain is treated exactly like any other MIT project. Your own
-  additions are yours to relicense, but the repository also carries Fernando
-  Guerra's original work under his copyright, and drawing a line through a codebase
-  by authorship is error-prone. Ideas-only makes the line unnecessary.
-- MIT grants no trademark rights and none are needed: "LibriScribe" and
-  "novelWriter" appear only to refer to those projects.
+- **LibriScribe (MIT) — derived.** Porting is permitted. MIT's single condition is
+  that the copyright and permission notice accompany "copies or substantial
+  portions of the Software," so: the notice is reproduced in
+  [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md), `LICENSE` points to it, and
+  every file containing derived code carries the attribution header naming both
+  copyright holders. The fork you maintain is treated like any other MIT project:
+  it also carries Fernando Guerra's original work under his copyright, and drawing
+  a line by authorship is error-prone, so *everything* derived from it is attributed
+  to both.
+- **novelWriter (GPL-3) — design reference only.** GPL-3 material in an MIT project
+  would require the whole project to be distributed under the GPL. Nothing is
+  copied or derived; short excerpts appear only in `docs/11`, marked and attributed,
+  as fair comment.
+
+[`tools/third_party_overlap.py`](../tools/third_party_overlap.py) enforces both:
+`--mit` overlap in a file without the attribution header is a defect, `--gpl`
+overlap outside the review documents is a defect. Run it against fresh checkouts
+before any release and whenever derived code lands. MIT grants no trademark
+rights and none are needed: both names appear only to refer to those projects.
+The complete list of everything consulted is [doc 14](14-references.md).
 
 **Dependencies.** The remaining exposure. Irrelevant while the tool is personal and
 unpublished — but a licence check in CI costs one config file and prevents a

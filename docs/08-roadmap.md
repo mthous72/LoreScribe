@@ -29,10 +29,11 @@ kills it. Nothing before Phase 2 should take longer than it has to.
 
 ## Phase 0b — Implement the specified algorithms *(~1 week, runs alongside Phase 1)*
 
-**Nothing is ported** ([D10](10-decisions.md)). These are written fresh in
-TypeScript from the behaviour specifications in [doc 12](12-algorithms.md), which
-is the implementation reference — the source repositories are not, and nobody needs
-to open them again.
+[Doc 12](12-algorithms.md) is the specification and the tests are written against
+it. Per file, either **port from LibriScribe with the attribution header**
+([D11](10-decisions.md)) or write fresh — whichever is faster for that file. Nothing
+is taken from novelWriter (GPL-3) under any circumstances. Run
+`tools/third_party_overlap.py` before merging.
 
 Doing this before the AI work skips months of rediscovery, and five of the eight
 need no model at all, which makes Phase 1 more useful standalone.
@@ -48,8 +49,8 @@ need no model at all, which makes Phase 1 more useful standalone.
 | Structured-output schema builders + strict detection | [§5](12-algorithms.md) | at call time |
 | Reasoning-allowance tracking | [§4](12-algorithms.md) | at call time |
 
-Tests are written **from the specification**, not from anyone's existing test
-suite — including the properties the spec calls out explicitly: the sanitiser is
+Tests are written **from the specification** — including the properties the spec
+calls out explicitly: the sanitiser is
 idempotent, the word counter matches hand-verified reference files, the ban list
 never contains a proper noun, and staggered fragments merge into one phrase.
 

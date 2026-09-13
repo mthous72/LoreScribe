@@ -1,17 +1,14 @@
 # Algorithm specifications
 
-[D10](10-decisions.md) is ideas-only: nothing is ported, everything is written
-fresh. That is clean legally and cleaner architecturally — but it only works if the
-ideas are captured precisely enough to build from. Otherwise "we learned that from
-LibriScribe" degrades into a vague memory three weeks later.
-
-So this document is the **specification**. It is the implementation reference for
-the non-obvious algorithms; the source repositories are not. Nothing here is a
-transcription — these are behaviour specs written in our own terms, with the
-parameter choices recorded because *which* values work is the expensive knowledge.
+This document is the **specification** for the non-obvious algorithms, and the
+tests are written against it. Under [D11](10-decisions.md) an implementation may be
+ported from LibriScribe with attribution or written fresh — either way it must meet
+this spec, which exists so the knowledge survives independent of any codebase.
+Nothing from novelWriter (GPL-3) may be used as source material.
 
 Each section is written to be implementable in TypeScript by someone who has never
-opened the projects in docs 09 and 11.
+opened the projects in docs 09 and 11. Parameter choices are recorded because *which*
+values work is the expensive knowledge.
 
 ---
 

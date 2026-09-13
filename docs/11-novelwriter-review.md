@@ -164,12 +164,15 @@ that phrase has different consequences per source:
 |---|---|---|
 | novelWriter | **GPL-3** | **Ideas only. Do not copy code.** Copying would force LoreScribe to GPL-3. Everything in this document is a design observation; all of it is to be written fresh. |
 | LibriScribe | **MIT** — Fernando Guerra (original), mthous72 (fork) | Reuse permitted, but the copyright and permission notice must be retained. |
-| LoreScribe | **Unlicense** (public domain) | "No conditions whatsoever" — which is in direct tension with shipping MIT-derived files inside it. |
+| LoreScribe | **MIT** ([D11](10-decisions.md)) | Compatible with LibriScribe; incompatible with absorbing GPL-3 code. |
 
-**Settled by [D10](10-decisions.md): ideas only, nothing ported, from either
-source.** That removes the question entirely — LoreScribe stays Unlicense, with no
-MIT notice to carry and no GPL-3 boundary to reason about. The findings live as
-behaviour specifications in [doc 12](12-algorithms.md) and are implemented fresh.
+**Settled by [D11](10-decisions.md): LoreScribe is MIT.** That makes porting from
+LibriScribe straightforward with attribution — and makes the novelWriter boundary
+*more* important, not less: GPL-3 material inside an MIT project would relicense
+the whole project. So for novelWriter specifically, **ideas only, no code, no
+text, no data**, and `tools/third_party_overlap.py --gpl` treats any overlap
+outside this document as a defect. The findings live as behaviour specifications
+in [doc 12](12-algorithms.md) and are implemented fresh.
 
 Both projects still earn their acknowledgement in the README: what they contributed
 is a map of which problems exist and which solutions work, which is most of the

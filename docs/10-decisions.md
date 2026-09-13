@@ -73,6 +73,8 @@ writing surface. Two consequences fall out of this, and both are real — see
   that fails too, D8 gets revisited.
 
 ### D10 — Ideas only; no code is ported from anywhere
+*Superseded by D11 for LibriScribe; still in force for novelWriter (GPL-3).*
+
 Nothing is copied from LibriScribe or novelWriter. Their contribution is what was
 *learned* — which failure modes exist, which parameter values work, which order the
 steps go in — and every line of LoreScribe is written fresh.
@@ -107,6 +109,42 @@ a transliteration would have — roughly a week rather than three days — and b
 clean licence, TypeScript that reads like the rest of the codebase rather than
 transliterated Python, and tests written against specified behaviour instead of
 against whatever the original happened to do.
+
+### D11 — MIT licence; porting permitted from permissive sources, with attribution
+*Supersedes D10 for LibriScribe. D10 remains in force for novelWriter.*
+
+LoreScribe is MIT-licensed. The Unlicense was going to be trouble: a public-domain
+dedication can't cleanly absorb MIT-derived code, and it is legally uneven across
+jurisdictions. MIT is also what the LibriScribe fork already uses, so the two
+projects can share code in either direction without ceremony.
+
+**What changes.** Code *may* now be ported or adapted from LibriScribe (MIT). The
+conditions are MIT's own, and the project adds one of its own for hygiene:
+
+1. Every file containing derived code carries the attribution header in
+   [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md), naming both copyright
+   holders — Fernando Guerra for the original, mthous72 for the fork.
+2. The MIT notice is reproduced in `THIRD_PARTY_NOTICES.md` and pointed to from
+   `LICENSE`.
+3. [`tools/third_party_overlap.py`](../tools/third_party_overlap.py) now runs in two
+   modes: overlap with a `--mit` source in a file *without* the header is a defect;
+   overlap with a `--gpl` source is a defect anywhere outside the review documents.
+
+**What does not change.** novelWriter is GPL-3. GPL material inside an MIT project
+would require the whole project to be distributed under the GPL, so **nothing from
+novelWriter may be copied or derived from — ideas only, as before.** The MIT licence
+depends on this boundary holding, and the tool enforces it.
+
+**Phase 0b becomes a hybrid.** [Doc 12](12-algorithms.md) is still the specification
+and still the thing tests are written against. Where porting a LibriScribe utility
+is faster than writing it fresh, port it, attribute it, and make it pass the spec's
+tests. Where the spec has moved past the original (the round-trip mojibake map, the
+role-weighted seeding), write fresh. The choice is made per file, on engineering
+grounds, now that licence is no longer a factor in it.
+
+**References.** Everything consulted for the plan — opened, referred to, or cited
+from general knowledge — is listed in [doc 14](14-references.md), with the last
+category flagged for verification.
 
 ### D9 — Android keeps Capacitor even though nothing ships to a store
 A plain PWA on Android would drop Capacitor entirely, which is tempting under D7.

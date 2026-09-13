@@ -12,8 +12,8 @@ the current plan.
 
 *Short excerpts from LibriScribe's comments, prompt strings and README are quoted
 in this document — always in quotation marks or block quotes, always attributed —
-for the purpose of commentary. No code is reproduced or incorporated
-([D10](10-decisions.md)); see [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).*
+for the purpose of commentary. Code may be ported from LibriScribe with
+attribution ([D11](10-decisions.md)); see [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).*
 
 ---
 
@@ -348,11 +348,11 @@ structured-output shaping, gap finding, statistics, reasoning-budget policy. The
 value is not the code, it's knowing that they need to exist and which parameter
 values work.
 
-So they are **specified, not ported** ([D10](10-decisions.md)): written up as
-behaviour specs in [doc 12](12-algorithms.md) and implemented fresh in TypeScript
-in [Phase 0b](08-roadmap.md). That keeps LoreScribe unencumbered, produces code
-that reads like the rest of the codebase, and still skips the months of discovery —
-which was always the actual prize.
+They are **specified** in [doc 12](12-algorithms.md) so the knowledge survives
+independent of any codebase, and then — since both projects are MIT
+([D11](10-decisions.md)) — either ported with attribution or written fresh in
+[Phase 0b](08-roadmap.md), whichever is faster per file. The months of discovery
+skipped were always the actual prize; the code is a convenience.
 
 Worth deciding explicitly: whether LoreScribe can read a `.libriscribe.json`
 bundle. Given both are yours, an importer is a few hours and makes the new app

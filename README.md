@@ -22,16 +22,18 @@ it. Founding decisions are logged in [doc 10](docs/10-decisions.md).
 
 ## Acknowledgements
 
-No code is taken from any other project — LoreScribe is written fresh and released
-into the public domain; [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) has the
-detail and [`tools/third_party_overlap.py`](tools/third_party_overlap.py) checks it.
-Two projects nonetheless shaped its design, and the debt is worth stating:
+LoreScribe is [MIT-licensed](LICENSE). Two projects shaped its design;
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) states exactly what is taken from
+each, [`docs/14`](docs/14-references.md) lists everything consulted, and
+[`tools/third_party_overlap.py`](tools/third_party_overlap.py) checks the boundaries.
 
 - **[LibriScribe](https://github.com/mthous72/libriscribe)** (MIT) by Fernando
   Guerra and Lenxys, forked and substantially extended — a hard-won record of what
-  goes wrong around a language model at novel length. Most of
+  goes wrong around a language model at novel length. Portions of LoreScribe are
+  derived from it, with attribution in each file; most of
   [doc 12](docs/12-algorithms.md) exists because these problems were found there
   first.
 - **[novelWriter](https://github.com/saga-soft/novelWriter)** (GPL-3) by Veronica
   Berglyd Olsen — a decade of care on storage robustness, cross-referencing and
-  project structure. Ideas only; no GPL code is used or derived from.
+  project structure. **Ideas only; no GPL code is used or derived from**, which is
+  what keeps this project MIT.
