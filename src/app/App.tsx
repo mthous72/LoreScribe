@@ -1,13 +1,39 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes } from 'react-router-dom';
+import { registerServiceWorker, type UpdateHandle } from '../pwa/register';
 import { DbProvider, useDb } from './DbProvider';
 import { LockedScreen, YieldedScreen } from './LockedScreen';
 import { ProjectsPage } from './ProjectsPage';
 import { DiagnosticsPage } from './DiagnosticsPage';
 
+/**
+ * The update offer, not an update interruption.
+ *
+ * The service worker deliberately never takes over a live page
+ * (tools/swPlugin.ts). The consequence is that somebody has to ask, and the
+ * asking has to be easy to ignore: a writer mid-scene should be able to leave
+ * this sitting there for a week.
+ */
+function UpdateBanner() {
+  const [update, setUpdate] = useState<UpdateHandle | null>(null);
+  useEffect(() => registerServiceWorker(setUpdate), []);
+  if (!update) return null;
+  return (
+    <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-current/10 px-4 py-2
+                  text-center text-xs">
+      A new version of LoreScribe is ready.
+      <button onClick={update.apply} className="underline">
+        Reload when you&rsquo;re at a stopping point
+      </button>
+    </p>
+  );
+}
+
 function Shell() {
   const db = useDb();
   return (
     <div className="min-h-dvh bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <UpdateBanner />
       <header className="border-b border-current/10">
         <nav className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3 text-sm">
           <span className="font-semibold">LoreScribe</span>

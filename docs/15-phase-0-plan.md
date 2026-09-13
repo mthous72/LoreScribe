@@ -263,6 +263,11 @@ overclaim, and the specifics are worth keeping rather than quietly fixing:
 | **C1** shadcn/ui | Deferred deliberately ([doc 16](16-phase-0-spike-report.md)) |
 | **D2** Prettier | Was dropped silently — now **waived with a reason** ([D20](10-decisions.md)). Tried, measured at 62 files reflowed and worse in the places that matter, and replaced with `@stylistic/eslint-plugin` rules so formatting is machine-checked in CI, which it was not before |
 
+A second finding sits outside the gate table because no gate ever claimed it:
+**the PWA did not exist.** No manifest, no icons, no service worker, while doc
+01 and D7/D8 had said "installable PWA" and "works offline" since the first
+commit. Built and tested in [D21](10-decisions.md).
+
 Two of those are waivers; three are gaps. They are listed here rather than in a
 backlog because this document's whole argument is that a gate you can declare
 green without meeting is not a gate.

@@ -380,3 +380,43 @@ not. That is one small argument occasionally, against a permanent loss of the
 layouts above. If this repository ever grows past a handful of contributors,
 revisit it — the reason recorded here is about size and about layout carrying
 meaning, and the first of those can change.
+
+### D21 — The PWA is built, and the service worker never takes over a live page
+*Closes a Phase 1 audit finding: [doc 01](01-architecture.md) and
+[D7](10-decisions.md)/[D8](10-decisions.md) have said "ships as an installable
+PWA" and "works offline" since the first commit, and there was no manifest, no
+icons and no service worker. Both statements were false.*
+
+**Built.** `public/manifest.webmanifest` with 192/512 and maskable icons
+(`tools/render-icons.mjs` rasterises them from SVG using the Chromium already
+present for Playwright, run by hand and the PNGs committed), a generated
+`sw.js`, registration in `src/pwa/register.ts`, and `tests/pwa.spec.ts` covering
+each claim so neither can go quietly false again. Every URL in the manifest is
+relative, so one build serves Pages under `/LoreScribe/` and a Capacitor bundle
+under `./`; the Pages workflow now fails if the manifest, the worker or the
+icons are not actually served, because a base-path mistake breaks installability
+silently and nobody notices until a writer is somewhere without signal.
+
+**Not `vite-plugin-pwa`.** The usual answer, and a reasonable one. Rejected for
+two reasons: thirty transitive packages for sixty lines of cache handling in a
+repository that licence-audits its tree, and — the deciding one — the update
+policy is not the default and is the part that matters here.
+
+**The update waits.** No `skipWaiting` on install, no claim on an update. A
+worker that activates immediately swaps the asset bundle under a page that is
+already running, and since that page fetches its database worker and lazily
+imported chunks by hashed URL — hashes a Pages deploy removes — it can break
+mid-sentence. It would also let an old shell run against a database `migrate()`
+has already moved forward, which is a real hazard rather than a cosmetic one.
+So the new version sits in `waiting` and the UI offers a reload the writer takes
+when they are at a stopping point. The first install still claims the page, so
+offline works without asking for a reload before it will.
+
+**One bug worth keeping.** The first working version cached everything correctly
+and failed offline anyway: the servers send `Vary: Origin` on static assets, the
+precache stored those responses against a request with no `Origin` header, and a
+module script from the page sends one — so strict `Vary` matching missed *every*
+asset while the cache sat there full. `caches.match(..., { ignoreVary: true })`
+fixes it, and it is safe precisely because the entries are content-hashed files
+whose URL is their whole identity. A PWA that claims offline and fails offline
+is worse than one that claims nothing, and only the test caught it.

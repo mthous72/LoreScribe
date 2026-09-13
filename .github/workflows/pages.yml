@@ -75,3 +75,22 @@ jobs:
           echo "::error::Could not confirm the built output after 5 attempts."
           printf '%s' "$body" | head -40
           exit 1
+
+      # The two files that make the deployment installable and offline-capable.
+      # They are the ones a base-path mistake breaks silently: the app still
+      # loads, the install prompt just never appears and nothing is cached, and
+      # nobody notices until a writer is somewhere without signal.
+      - name: Verify the manifest and service worker are served
+        run: |
+          url="${{ steps.deployment.outputs.page_url }}"
+          fail=0
+          for path in manifest.webmanifest sw.js icons/icon-192.png icons/icon-512.png; do
+            code=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 30 "${url%/}/$path" || echo 000)
+            echo "$path -> $code"
+            [ "$code" = "200" ] || { echo "::error::$path is not being served ($code)"; fail=1; }
+          done
+          # A service worker whose precache points at the wrong base caches
+          # nothing and fails silently, so check it names this deployment's path.
+          curl -sSL --max-time 30 "${url%/}/sw.js" | grep -q '"/LoreScribe/assets/' \
+            || { echo "::error::sw.js precache does not use the Pages base path"; fail=1; }
+          exit $fail
