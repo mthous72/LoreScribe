@@ -209,6 +209,10 @@ CREATE TABLE mention (
   id TEXT PRIMARY KEY,
   scene_id  TEXT NOT NULL REFERENCES scene(id) ON DELETE CASCADE,
   entity_id TEXT NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
+  -- Role in THIS scene, not importance in the book (novelWriter @pov/@focus/
+  -- @char/@mention). The brief compiler seeds from pov/focus/present and admits
+  -- 'mentioned' entities at summary level only. See docs/11.
+  role TEXT NOT NULL DEFAULT 'present',  -- pov|focus|present|mentioned
   start_offset INTEGER, end_offset INTEGER,
   alias_used TEXT,
   method     TEXT,                   -- explicit|alias_match|inferred
@@ -216,7 +220,7 @@ CREATE TABLE mention (
   confirmed  INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX mention_scene_idx  ON mention(scene_id);
+CREATE INDEX mention_scene_idx  ON mention(scene_id, role);
 CREATE INDEX mention_entity_idx ON mention(entity_id);
 
 -- ============================================================ 5. PLANNING
@@ -406,6 +410,29 @@ CREATE TABLE tag_link (
   tag_id TEXT NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
   owner_table TEXT NOT NULL, owner_id TEXT NOT NULL,
   PRIMARY KEY (tag_id, owner_table, owner_id)
+);
+
+-- Derived data is a CACHE, never the source of truth: mention, scene_fts,
+-- embedding and scene.global_rank are all recomputable from scenes + aliases.
+-- Each kind records the algorithm revision that built it; a bump makes the data
+-- stale and triggers a rebuild. "Rebuild index" is a button, not an incident.
+CREATE TABLE index_state (
+  kind TEXT PRIMARY KEY,             -- mention|fts|embedding|rank
+  algo_revision INTEGER NOT NULL,
+  built_at INTEGER, built_rows INTEGER,
+  stale INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT
+);
+
+-- Single-writer lock. The opfs-sahpool VFS takes exclusive sync access handles,
+-- so a second tab on the same project fails at the storage layer with an opaque
+-- error. Claim the lock with a heartbeat and show a real "open elsewhere" screen.
+CREATE TABLE project_lock (
+  project_id TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+  holder_id TEXT NOT NULL,           -- tab/device identifier
+  holder_label TEXT,                 -- human-readable, for the takeover prompt
+  acquired_at INTEGER NOT NULL,
+  heartbeat_at INTEGER NOT NULL
 );
 
 CREATE TABLE op_log (                -- append-only; enables future sync

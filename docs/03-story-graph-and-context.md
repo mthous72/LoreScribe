@@ -45,9 +45,11 @@ interface SceneBrief {
 
 ## Compilation algorithm
 
-**Step 1 — Seed.** Collect hard links from the scene row: POV character, location,
-cast (confirmed mentions plus manually pinned entities), linked beats, and the
-arcs those beats belong to.
+**Step 1 — Seed.** Collect hard links from the scene row, **weighted by the
+mention's role in this scene** rather than by book-level importance: `pov` and
+`focus` entities get full dossiers, `present` entities get standard ones, and
+`mentioned` entities — referred to but not on stage — get their one-line summary
+and nothing more. Plus location, linked beats, and the arcs those beats belong to.
 
 **Step 2 — Expand one hop.** From each seed entity, traverse `entity_relationship`
 where the relationship is active at this scene's rank. One hop, not two —

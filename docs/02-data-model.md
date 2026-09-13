@@ -145,8 +145,14 @@ fact_knowledge(fact_id, entity_id, known_from_scene_id, belief)
 
 ## 5. Mentions — linking prose to the graph
 
-`mention(scene_id, entity_id, start_offset, end_offset, alias_used, confidence,
-confirmed, is_pov)`.
+`mention(scene_id, entity_id, role, start_offset, end_offset, alias_used,
+confidence, confirmed)`.
+
+`role` is `pov | focus | present | mentioned` — what the entity is to *this scene*,
+which is a different question from `entity.importance` (what it is to the book).
+A protagonist named once in passing is `mentioned` and needs no dossier; the POV
+character always does. Borrowed from novelWriter's `@pov`/`@focus`/`@char`/
+`@mention` distinction; see [doc 11](11-novelwriter-review.md).
 
 Produced three ways: explicit `@` insertion by the writer, alias matching on
 save (cheap, deterministic, covers most of it), and an optional LLM pass for
@@ -214,6 +220,32 @@ having it from the first commit is what makes an optional sync service a feature
 rather than a rewrite.
 
 ---
+
+## 9b. Derived data is a cache, never the truth
+
+Four things in this schema are computed, not authored: `mention`, `scene_fts`,
+`embedding`, and `scene.global_rank`. All four are recomputable from scenes plus
+aliases plus structure. They live in the same database as the source of truth,
+which is convenient and dangerous — nothing distinguishes them, so nothing can
+say "this is stale, rebuild it."
+
+`index_state` fixes that: one row per derived kind, carrying the **algorithm
+revision** that produced it. Change the alias matcher, bump the revision; the
+existing rows are now stale by definition and get rebuilt. Same for a half-finished
+import or a bug found after the fact. A full rebuild must always be available and
+must always be safe — it is a button in settings, not a support incident.
+
+(novelWriter does exactly this: its index is cached JSON with a revision compared
+against the project file's, rebuilt wholesale on mismatch. The documents are the
+truth; the index is an optimisation. See [doc 11](11-novelwriter-review.md).)
+
+## 9c. One writer at a time
+
+`project_lock` holds a heartbeat and a device label. This is not future-proofing
+for collaboration — it is required *now*, because the `opfs-sahpool` VFS takes
+exclusive sync access handles and a second browser tab on the same project
+otherwise dies with an opaque storage error. Claim on open, heartbeat while
+active, release on close, and offer takeover when the heartbeat has gone stale.
 
 ## 10. Search and embeddings
 

@@ -16,6 +16,10 @@ kills it. Nothing before Phase 2 should take longer than it has to.
   priority.
 - `SqlDriver` interface with the sqlite-wasm implementation; Drizzle; the migration
   runner; `db/schema.sql` as migration 001.
+- **Multi-tab behaviour in the same spike** — the SAHPool VFS takes exclusive
+  access handles, so a second tab must be detected and handled, not left to fail
+  with a storage error. `project_lock` plus the Web Locks API, with a real "open in
+  another tab" screen and takeover ([doc 11](11-novelwriter-review.md)).
 - `navigator.storage.persist()` on first project creation, with the result surfaced
   honestly rather than assumed.
 - Repository layer and the `op_log` write path.
@@ -58,7 +62,14 @@ Each port lands with the tests from `tests/` translated alongside it.
 - **Backup and export: automatic, scheduled, and on by default.** Whole-project
   `.lorescribe` archive plus plain Markdown. Not a backlog item — with no server
   and evictable browser storage, this is the only thing between you and total loss
-  ([D9](10-decisions.md)).
+  ([D9](10-decisions.md)). The archive is **versioned and self-describing**: every
+  entry carries its own ids, parents, ranks, hash and dates, so a damaged archive is
+  partially recoverable and the importer salvages what it can instead of refusing
+  the file. A backup you can't open in twelve months isn't a backup.
+- **Index rebuild path** for all derived data (`mention`, FTS, embeddings, ranks),
+  driven by `index_state` algorithm revisions.
+- Word counting as a specified, tested algorithm — not `split(" ")` — used
+  identically by goals, stats and budget estimates.
 - **Done when:** LoreScribe is already a usable novel-writing app with the best
   lore-linking on the market and zero AI, and your LibriScribe books open in it.
   If this phase isn't pleasant to use, no amount of AI will save it.
@@ -116,7 +127,9 @@ Each port lands with the tests from `tests/` translated alongside it.
 - OpenAI-compatible adapter; Ollama/llama.cpp/LM Studio presets.
 - LAN endpoint discovery from Android.
 - Local embeddings (ONNX/transformers.js) for offline semantic search.
-- Export: EPUB, DOCX, Markdown, PDF, `.lorescribe` archive.
+- Export: EPUB, DOCX, Markdown, PDF, `.lorescribe` archive — as **named, saved
+  build profiles** (filters, per-level heading format and breaks, what to include:
+  body / synopsis / comments / notes), not one-shot menu items.
 - Import: Markdown/DOCX/Scrivener.
 
 ## The parity bar
