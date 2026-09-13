@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useDb } from './DbProvider';
 import { useReorder, type DropTarget } from '../ui/useReorder';
 import type { OutlineGroup } from '../data/manuscriptRepository';
+import { SceneEditor } from '../editor/SceneEditor';
 
 /**
  * The manuscript tree.
@@ -156,6 +157,7 @@ export function ManuscriptPage() {
   }
 
   const words = scenes.reduce((n, s) => n + s.wordCount, 0);
+  const openScene = scenes.find((s) => s.id === selected) ?? null;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -264,6 +266,14 @@ export function ManuscriptPage() {
                    font-medium disabled:opacity-50">
         Add a chapter
       </button>
+
+      {openScene
+        ? <SceneEditor projectId={projectId} scene={openScene} />
+        : (
+          <p className="mt-8 text-sm opacity-60">
+            Choose a scene above to write in it.
+          </p>
+        )}
     </div>
   );
 }

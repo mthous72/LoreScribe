@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { WorkerSqlDriver } from '../db/client';
 import { SqlOpenError } from '../db/driver';
 import { migrate } from '../db/migrate';
@@ -25,6 +25,17 @@ interface Ready {
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
   uncleanShutdown: StaleLock | null;
+  /**
+   * Register work that must reach the database before it is handed over or
+   * closed. Returns an unregister function.
+   *
+   * This exists for one failure: an editor holds a few hundred milliseconds of
+   * typing in memory behind a debounce, and a takeover in another tab closes
+   * the database underneath it. The writer loses the last thing they typed, in
+   * an app whose entire promise is that their work is safe. A pending save is
+   * not something to race — it is something to wait for.
+   */
+  registerFlush: (flush: () => Promise<void>) => () => void;
 }
 type DbState =
   | { state: 'opening' }
@@ -43,6 +54,14 @@ export function useReadyDb(): Ready {
 
 export function DbProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<DbState>({ state: 'opening' });
+  // A ref, not state: registering a flush must not re-render, and the handover
+  // path has to see the set as it is at that moment.
+  const flushes = useRef(new Set<() => Promise<void>>());
+
+  const registerFlush = useCallback((flush: () => Promise<void>) => {
+    flushes.current.add(flush);
+    return () => { flushes.current.delete(flush); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,9 +71,22 @@ export function DbProvider({ children }: { children: ReactNode }) {
     const holderId = sessionId;
     const holderLabel = 'another tab on this device';
 
+    /**
+     * Everything anyone is holding, written before we let go.
+     *
+     * Settled rather than raced: one failing flush must not stop the others,
+     * and every one of them is somebody's prose.
+     */
+    const flushAll = async () => {
+      await Promise.allSettled([...flushes.current].map((f) => f()));
+    };
+
     /** Give up the database so a waiting context can have it. */
     const yieldDatabase = async () => {
       if (beat) { clearInterval(beat); beat = null; }
+      // Before anything is closed. The other tab is waiting a few hundred
+      // milliseconds; the alternative is losing a sentence.
+      try { await flushAll(); } catch { /* recorded below by the failing writer */ }
       const d = driver;
       driver = null;
       if (d) {
@@ -117,6 +149,22 @@ export function DbProvider({ children }: { children: ReactNode }) {
           if (driver) void beatLockRecord(driver, holderId).catch(() => { /* best effort */ });
         }, HEARTBEAT_MS);
 
+        // A read/write hook onto the LIVE connection, for Playwright only.
+        //
+        // Tests cannot open their own connection to check what was stored:
+        // opfs-sahpool is single-writer and this tab holds it, so a second one
+        // is refused. Without this, an assertion about the database can only be
+        // made through the UI, and a test that reads the DOM while claiming to
+        // read the database is worse than no test.
+        //
+        // Gated on the same build flag as src/spike/testSurface.ts, so Vite
+        // drops it from the Pages build entirely rather than shipping a console
+        // route into a writer's manuscript.
+        if (import.meta.env.VITE_TEST_SURFACE) {
+          (window as unknown as { __lsQuery?: unknown }).__lsQuery =
+            (sql: string, params: unknown[] = []) => driver!.query(sql, params, 'all');
+        }
+
         const storage = await requestPersistence();
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
@@ -124,7 +172,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           state: 'ready', driver, db: makeDb(driver),
           projects: new ProjectRepository(driver),
           manuscript: new ManuscriptRepository(driver),
-          diagnostics, storage, uncleanShutdown,
+          diagnostics, storage, uncleanShutdown, registerFlush,
         });
       } catch (e) {
         lock?.release();
@@ -149,6 +197,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
       const l = lock;
       void (async () => {
         if (d) {
+          try { await flushAll(); } catch { /* nothing more we can do */ }
           try { await releaseLockRecord(d, holderId); } catch { /* closing anyway */ }
           try { await d.close(); } catch { /* already gone */ }
           d.terminate();
@@ -156,7 +205,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
         l?.release();
       })();
     };
-  }, []);
+  }, [registerFlush]);
 
   return <Ctx.Provider value={state}>{children}</Ctx.Provider>;
 }
