@@ -7,11 +7,14 @@ kills it. Nothing before Phase 2 should take longer than it has to.
 
 ---
 
-## Phase 0 — Foundations *(~1 week)*
+## Phase 0 — Foundations *(~1 week)* — **complete**
 
-**[Doc 15](15-phase-0-plan.md) is the executable version of this phase** — the
-gates, the measurements each one has to produce, and the stop rule. What follows
-is the summary.
+**[Doc 15](15-phase-0-plan.md) is the executable version of this phase** and
+**[doc 16](16-phase-0-spike-report.md) holds the measurements.** Every gate is
+green, including the one that needed a real phone: `opfs-sahpool`'s exclusive
+handles survived a backgrounded tab on Android, so the web path holds on the
+primary platform and Capacitor stays in Phase 6. What follows is the summary of
+what the phase contained.
 
 - **First, before anything else: the `opfs-sahpool` spike.** Static hosting can't
   set COOP/COEP, so the SharedArrayBuffer OPFS VFS is unavailable and the SAHPool

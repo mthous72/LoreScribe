@@ -15,7 +15,8 @@
     "check": "npm run typecheck && npm run lint && npm run licences && npm run test:unit",
     "test": "vitest run && playwright test",
     "test:pages": "playwright test -c playwright.pages.config.ts",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:live": "playwright test -c playwright.live.config.ts"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",

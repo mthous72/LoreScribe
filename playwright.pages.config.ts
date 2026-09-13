@@ -11,6 +11,8 @@ const executablePath = existsSync(localChromium) ? localChromium : undefined;
 
 export default defineConfig({
   testDir: './tests',
+  // The live-origin spike is opt-in; it needs a deployment to exist.
+  testIgnore: '**/live/**',
   testMatch: /gate-(b|c)\.spec\.ts/,
   fullyParallel: false,
   workers: 1,

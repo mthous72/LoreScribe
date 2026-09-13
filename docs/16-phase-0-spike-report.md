@@ -17,8 +17,23 @@ plan's assumptions were wrong and are corrected below.
 |---|---|---|
 | 1 | Local Chromium 153, production build served by `vite preview` | **done — this report** |
 | 1b | CI (`ubuntu-latest`, Playwright Chromium), plain and under the `/LoreScribe/` prefix | **done — green, every step** |
-| 2 | Deployed Pages origin, desktop Chrome | pending — needs a merge to `main` or a manual dispatch |
-| 3 | Deployed Pages origin, Android Chrome on a real device | pending — needs the phone ([D16](10-decisions.md)) |
+| 2 | Deployed Pages origin, desktop Chrome | **partial** — see below |
+| 3 | Deployed Pages origin, Android Chrome on a real device | **done — R2b survived** |
+
+**Environment 2 is deliberately marked partial rather than done.** What was
+verified directly: the origin serves the *build* and not the repository, the
+entry bundle, CSS, worker bundle and OPFS async proxy all return 200 under the
+`/LoreScribe/` prefix, and `sqlite3.wasm` arrives as 868 KB with
+`content-type: application/wasm` — the header whose absence makes
+`WebAssembly.instantiateStreaming` fail with an error that points nowhere
+useful. The full measurement run against the live origin was not possible from
+the development sandbox, whose egress relay drops a browser's tunnels
+mid-exchange; `npm run test:live` performs it from any ordinary machine.
+
+It is left partial rather than chased because its marginal value is low:
+[D16](10-decisions.md) gives desktop no dedicated QA matrix, CI already runs
+every gate under the same base path, and environment 3 — the one that decides
+anything — is done.
 
 Environment 1 is a headless Chromium in a Linux container. It is a real browser
 running the real production build, so the storage semantics are honest; the
@@ -205,10 +220,19 @@ gates again under the real prefix rather than by inspecting the build output.
 
 ## Open items
 
-- **Environments 2 and 3.** Gate A is not closed until the Pages origin and a
-  real Android device are measured. The Pages workflow deploys on push to `main`
-  or on manual dispatch, so environment 2 is one action away; environment 3 needs
-  a person holding a phone.
+- **R2b is answered: the handles survived.** Tested on the real device against
+  the deployed origin, holding one connection across the interruption. This
+  closes the question that could have moved Capacitor into Phase 0, and the web
+  path on Android stands.
+
+  Worth stating what that does and does not establish. It is one pass, on one
+  device, under whatever memory pressure that session happened to produce — good
+  evidence, not proof that handles survive every condition. Two things make that
+  acceptable rather than a gap: the failure would be recoverable rather than
+  destructive (the file on disk is unaffected; a lost handle means reopening),
+  and the `SqlDriver` split means switching to the native path stays a driver
+  change rather than a rewrite. The harness ships, so it can be re-run on any
+  device whenever the answer is doubted.
 
   **The R2b harness had to be built, not just described.** The obvious
   instruction — run the spike, background the tab, run it again — cannot answer

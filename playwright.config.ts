@@ -12,6 +12,8 @@ const executablePath = existsSync(localChromium) ? localChromium : undefined;
 // dev-works/build-breaks seam. docs/15 §7.
 export default defineConfig({
   testDir: './tests',
+  // The live-origin spike is opt-in; it needs a deployment to exist.
+  testIgnore: '**/live/**',
   fullyParallel: false,
   workers: 1,
   timeout: 240_000,

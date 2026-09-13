@@ -14,12 +14,14 @@ which is the core of the system. The draft database schema is
 Android APK), local-first SQLite, the writer's own API key called directly
 (OpenRouter first, OpenAI-compatible local endpoints next).
 
-**Status: Phase 0.** The storage bet holds — `opfs-sahpool` over OPFS runs on a
-static origin with no COOP/COEP headers, at 150,000 words, with every threshold
-met. Measurements and what they overturned are in
-[doc 16](docs/16-phase-0-spike-report.md). What remains before Phase 0 closes is
-the deployed Pages origin and a real Android device, which is also the only way
-to answer whether the VFS survives a backgrounded tab.
+**Status: Phase 0 complete; Phase 1 next.** The storage bet holds —
+`opfs-sahpool` over OPFS runs on a static origin with no COOP/COEP headers, at
+150,000 words, with every threshold met, and its file handles survive a
+backgrounded tab on a real Android phone. Measurements, and the two assumptions
+they overturned, are in [doc 16](docs/16-phase-0-spike-report.md).
+
+Running at <https://mthous72.github.io/LoreScribe/> — `#/diagnostics` runs the
+storage spike on whatever device you open it with.
 
 ```
 npm install
