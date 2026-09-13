@@ -7,10 +7,10 @@ import { execFileSync } from 'node:child_process';
 // there is real data". docs/15 §1.
 
 test('B2 — the driver conformance suite', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   const cases = await page.evaluate(() => window.runConformance('lorescribe-conf'));
 
-  // eslint-disable-next-line no-console
+   
   console.log('\n' + cases.map((c) =>
     `${c.pass ? ' ✓ ' : ' ✗ '}${c.name}${c.detail ? `\n     ${c.detail}` : ''}`).join('\n'));
 
@@ -34,12 +34,12 @@ rows = c.execute("""
 print(json.dumps([r[0] for r in rows]))
 `]).toString());
 
-  await page.goto('/');
+  await page.goto('./');
   const actual = await page.evaluate(() => window.schemaDump('lorescribe-dump'));
 
   expect(expected.length).toBeGreaterThan(50);
   expect(actual).toEqual(expected);
-  // eslint-disable-next-line no-console
+   
   console.log(`   ${actual.length} schema objects identical across CPython SQLite and sqlite-wasm`);
 });
 
@@ -49,7 +49,7 @@ test('B4 — a database survives a close and reopen in every journal mode we shi
   // SQLITE_CANTOPEN — which reads as "no such file" and means "you did not set
   // locking_mode=exclusive first". The writer's novel would have opened once and
   // never again. docs/16.
-  await page.goto('/');
+  await page.goto('./');
   for (const mode of ['delete', 'wal'] as const) {
     const r = await page.evaluate((m) => window.reopenUnderJournalMode(`reopen-${m}`, m), mode);
     expect(r, `journal_mode=${mode} did not survive a reopen: ${JSON.stringify(r)}`)

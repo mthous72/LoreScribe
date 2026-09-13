@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 // because it must be true, not because it is sufficient.
 
 test('C2-C4 — a project survives a reload, and op_log records every write', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
 
   await page.getByLabel('Project title').fill('The Grey Warden');
@@ -34,7 +34,7 @@ test('C2-C4 — a project survives a reload, and op_log records every write', as
 
 test('C1 — the shell works at phone width (D15: the phone is a peer, not a viewer)', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
 
   // No horizontal overflow: the single most common phone-layout defect.

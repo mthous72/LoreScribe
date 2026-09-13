@@ -66,7 +66,7 @@ export async function runSpike(
   // --- persist(): heuristic, never prompted, and documented only as of 2020.
   // So we measure it rather than assume it. Main thread only: the method does
   // not exist on WorkerNavigator. docs/15 §7.
-  let persisted: boolean | null = null;
+  let persisted: boolean | null;
   try {
     persisted = await navigator.storage.persist();
   } catch { persisted = null; }

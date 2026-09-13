@@ -247,9 +247,9 @@ scaffold before this answer is an hour betting the answer is yes.
 | A9 | **Verify the production build, not just the dev server** — that `sqlite3.wasm` and `sqlite3-opfs-async-proxy.js` are actually emitted and resolve under the `/LoreScribe/` base path (§7) |
 | A10 | Deploy and re-run A4–A9 on the Pages origin and on the phone |
 
-**Status: A1–A7 and A9 are green on local Chromium — see
+**Status: Gates A (bar A8), B, C and D are green on local Chromium — see
 [doc 16](16-phase-0-spike-report.md).** A8 (backgrounding, R2b) and A10 need the
-deployed origin and the physical device, and are what actually close this gate.
+deployed origin and the physical device, and are what actually close Phase 0.
 
 **Measurements.** Targets are opening bids — the point is that they're written
 down before the run, so "it felt fine" isn't an answer. A missed target is either

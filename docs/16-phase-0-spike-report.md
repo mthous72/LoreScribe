@@ -77,7 +77,9 @@ path of the writing experience.
 
 **Decision: WAL for steady-state editing**, set via `locking_mode=exclusive`
 first — the ordering is mandatory and is why pragmas live in the driver's
-connection-open path rather than in the schema.
+connection-open path rather than in the schema. **Read §4 before implementing
+this**: adopting WAL without getting the ordering exactly right destroys access
+to the database, and it does so silently.
 
 ### 2. Bulk insert was 10× under target, and journal mode was not the reason
 
@@ -129,6 +131,75 @@ Separately, `pauseVfs()`/`unpauseVfs()` gives a genuine cooperative handoff: tab
 A closes its handles and pauses, tab B installs and finds the data intact. That
 is the mechanism behind the takeover, and it works.
 
+### 4. WAL nearly cost us every project — the ordering is not advice, it is load-bearing
+
+Gate C is the modest one: create a project, reload, see it still there. It
+failed. The project was gone, and the error was `SQLITE_CANTOPEN` — "unable to
+open database file", which reads as *the file is missing* and means nothing of
+the sort.
+
+Bisecting by journal mode found it immediately:
+
+| Written in | Closed cleanly | Reopened |
+|---|---|---|
+| `journal_mode=delete` | yes | **fine** |
+| `journal_mode=wal` | yes | **`SQLITE_CANTOPEN`** |
+
+**A WAL database on `opfs-sahpool` could not be reopened at all.** Not slowly,
+not with lost data — not at all.
+
+The cause is ordering, and the documentation says so if you read it as covering
+every open rather than only the one that enables WAL. SQLite's WASM build has no
+shared-memory primitives, so WAL depends on `locking_mode=exclusive`, and
+sqlite.org specifies it must be set *"immediately after opening, before doing
+anything else with it."* Our connection-open path ran `foreign_keys` and
+`temp_store` first. Those are "anything else."
+
+Creating the database worked, because at creation the file is not yet in WAL —
+the pragma that switches it runs after `locking_mode` inside the mode-setting
+path. Only the *second* session opens a file that is already WAL. So the writer
+would have created a project, worked on it, closed the tab, and found the
+project permanently unopenable, with an error message pointing at a missing
+file.
+
+The fix is one line moved: `locking_mode=exclusive` is now the first statement
+on every connection, before anything else. sahpool is single-connection by
+construction, so exclusive locking gives up nothing that was available.
+
+**This is the clearest vindication of [doc 15](15-phase-0-plan.md)'s whole
+argument.** Consider the sequence. Gate A measured WAL as three times faster on
+autosave and recommended adopting it — a good decision, made on real numbers.
+Shipped on its own, that recommendation would have destroyed access to every
+project on its second open. And the roadmap's original done-when — *"a project
+can be created, persisted and reloaded after a refresh"* — sounds like it would
+have caught this, but a demo-shaped version of it does not: creating works,
+persisting works, and the failure only appears when a **new page** opens a file
+that a **previous session** left in WAL. It took a measurement that recommended
+a change, and a separate gate that exercised the change, for the bug to exist
+and then be caught. Either one alone misses it.
+
+A regression test now reopens a database under every journal mode the app ships.
+
+---
+
+## Gates B, C and D
+
+| Gate | Result |
+|---|---|
+| **B2** — driver conformance suite | 14 cases, all pass. Written against the `SqlDriver` interface, so Phase 6 is "make the Capacitor driver pass this" |
+| **B3** — schema equivalence | **73 objects identical** between CPython's SQLite applying `db/schema.sql` and sqlite-wasm running migration 001 |
+| **B4** — reopen under every shipped journal mode | pass (the §4 regression guard) |
+| **C1** — phone width | 390 px, no horizontal overflow, both routes ([D15](10-decisions.md)) |
+| **C2–C4** — project survives reload; `op_log` per mutation; `persist()` surfaced | pass |
+| **D** — typecheck, lint, licence allowlist, CI, Pages deploy | pass; 9 production dependencies, all allowed |
+| **A9** — production build under Pages' `/LoreScribe/` prefix | pass — the full gate suite runs a second time against it |
+
+That last one is worth its own line. sqlite-wasm resolves its `.wasm` and its
+OPFS async proxy through `import.meta.url` from inside a dependency Vite is told
+not to pre-bundle, so a base path is precisely where that arrangement would
+break — and it would break only in production. It is checked by running the
+gates again under the real prefix rather than by inspecting the build output.
+
 ---
 
 ## Open items
@@ -153,3 +224,10 @@ is the mechanism behind the takeover, and it works.
   `db/schema.sql` ships no rows, so a fresh database cannot hold an entity. The
   corpus seeds seven built-in types to run at all; **Phase 1 needs a real seed
   migration**.
+- **Pinning Vite 7 has an ecosystem cost.** `@vitejs/plugin-react` 6 requires
+  Vite 8, so 5.2.0 is pinned — it supports both, which makes the eventual move
+  cheap. Worth knowing that the pin is not free.
+- **shadcn/ui is deferred to Phase 1.** Doc 15's Gate C lists it, but a
+  component library with no components to build is exactly the scaffolding R7
+  warns about. Tailwind is in, since it sets the styling idiom for everything
+  after.

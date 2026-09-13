@@ -20,7 +20,7 @@ export interface StorageStatus {
  */
 export async function requestPersistence(): Promise<StorageStatus> {
   let persisted = false;
-  let granted: boolean | null = null;
+  let granted: boolean | null;
   try {
     persisted = await navigator.storage.persisted();
     if (!persisted) {

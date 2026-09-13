@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Typecheck, lint, licences, gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      # A copyleft dependency would quietly foreclose the option to release
+      # later. One file, checked every push. docs/13 §4.
+      - run: npm run licences
+      - run: npx playwright install --with-deps chromium
+      # Gates A, B and C. The spike runs against the production build, because
+      # the sqlite-wasm asset URLs live inside an excluded dependency and that
+      # is the classic dev-works/build-breaks seam.
+      - run: npm test
+      # And again under GitHub Pages' /LoreScribe/ prefix, because that is
+      # exactly where sqlite-wasm's import.meta.url asset resolution would break
+      # — and it would break only in production.
+      - run: npm run test:pages
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-results
+          path: spike-results/
+          if-no-files-found: ignore
+
+  third-party:
+    name: Third-party boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the reference checkouts
+        run: |
+          git clone --depth 1 https://github.com/mthous72/libriscribe    /tmp/ref-mit
+          git clone --depth 1 https://github.com/saga-soft/novelWriter   /tmp/ref-gpl
+      # MIT overlap in a file without the attribution header is a defect.
+      # GPL overlap is a defect anywhere outside the review documents — the MIT
+      # licence of this project depends on that boundary holding. D10, D11.
+      - run: python3 tools/third_party_overlap.py --mit /tmp/ref-mit --gpl /tmp/ref-gpl

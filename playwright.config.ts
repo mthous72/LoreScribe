@@ -1,4 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
+import { existsSync } from 'node:fs';
+
+// This container ships a pinned Chromium that predates the @playwright/test
+// version here. Point at it when it exists; in CI, let Playwright resolve its
+// own download.
+const localChromium = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
+const executablePath = existsSync(localChromium) ? localChromium : undefined;
 
 // Gate A runs against the PRODUCTION build, not the dev server: the sqlite-wasm
 // asset URLs live inside an excluded dependency, which is the classic
@@ -18,9 +25,7 @@ export default defineConfig({
     name: 'chromium',
     use: {
       ...devices['Desktop Chrome'],
-      // This container ships a pinned Chromium that predates the @playwright/test
-      // version here, so point at it rather than downloading another one.
-      launchOptions: { executablePath: process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium' },
+      launchOptions: { executablePath },
     },
   }],
   webServer: {

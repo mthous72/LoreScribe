@@ -7,13 +7,22 @@ export function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [title, setTitle] = useState('');
   const [ops, setOps] = useState(0);
+  // Mutations bump this rather than each re-reading for themselves, so there is
+  // one place that loads and one place that invalidates.
+  const [generation, setGeneration] = useState(0);
+  const refresh = () => setGeneration((g) => g + 1);
 
-  const refresh = async () => {
+  useEffect(() => {
     if (db.state !== 'ready') return;
-    setProjects(await db.projects.list());
-    setOps(await db.projects.opLogCount());
-  };
-  useEffect(() => { void refresh(); }, [db.state]);
+    let cancelled = false;
+    void (async () => {
+      const [list, count] = await Promise.all([db.projects.list(), db.projects.opLogCount()]);
+      if (cancelled) return;
+      setProjects(list);
+      setOps(count);
+    })();
+    return () => { cancelled = true; };
+  }, [db, generation]);
 
   if (db.state !== 'ready') return null;
   const { storage, diagnostics } = db;
@@ -29,7 +38,7 @@ export function ProjectsPage() {
           if (!title.trim()) return;
           await db.projects.create(title.trim());
           setTitle('');
-          await refresh();
+          refresh();
         }}
       >
         <input
@@ -50,7 +59,7 @@ export function ProjectsPage() {
             <span className="min-w-0 flex-1 truncate text-sm">{p.title}</span>
             <span className="shrink-0 text-xs opacity-50">rev {p.rev}</span>
             <button
-              onClick={async () => { await db.projects.remove(p.id); await refresh(); }}
+              onClick={async () => { await db.projects.remove(p.id); refresh(); }}
               className="shrink-0 text-xs underline opacity-60">
               delete
             </button>
