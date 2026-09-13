@@ -30,7 +30,7 @@ export interface MatchingBlock {
  * difflib's own tie-breaking, which makes results stable and reproducible.
  */
 function longestMatch<T>(
-  a: readonly T[], b: readonly T[],
+  a: readonly T[],
   aLo: number, aHi: number, bLo: number, bHi: number,
   bIndex: Map<T, number[]>,
 ): MatchingBlock {
@@ -73,7 +73,7 @@ export function matchingBlocks<T>(a: readonly T[], b: readonly T[]): MatchingBlo
 
   while (queue.length) {
     const [aLo, aHi, bLo, bHi] = queue.pop()!;
-    const m = longestMatch(a, b, aLo, aHi, bLo, bHi, bIndex);
+    const m = longestMatch(a, aLo, aHi, bLo, bHi, bIndex);
     if (m.size === 0) continue;
     blocks.push(m);
     // Recurse either side of the block found.

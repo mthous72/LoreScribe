@@ -6,7 +6,7 @@
  * demoralising and tells the writer nothing they can act on.
  */
 
-import { countWords, splitSentences } from './words';
+import { countWords } from './words';
 
 const WORDS_PER_MINUTE = 220;
 
@@ -89,7 +89,6 @@ export function dialogueRatio(text: string): number {
 
 export function proseStats(text: string): ProseStats {
   const counts = countWords(text);
-  const sentences = splitSentences(text);
   const words = wordsOf(text);
   const syllables = words.reduce((n, w) => n + countSyllables(w), 0);
 
