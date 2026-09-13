@@ -123,6 +123,15 @@ environment, gain a slight performance boost." That makes it an optimisation to
 more clearly useful one, for a reason that has nothing to do with speed — see
 §7.
 
+> **Measured, and overturned** ([doc 16](16-phase-0-spike-report.md)). The
+> premise holds — sahpool really is single-connection — but the conclusion
+> doesn't follow, because WAL's *per-commit* cost benefit is independent of
+> concurrency, and autosave is one row per commit. Autosave p95: **6.1 ms under
+> `delete`, 2.6 ms under `wal`**. Three times better on the write that fires
+> every time the writer pauses. WAL is on for steady-state editing. This is
+> exactly the kind of "reasonable inference that happens to be wrong" a gate
+> exists to catch.
+
 **b. There is no migration bookkeeping table — and Drizzle can't supply one.**
 The schema has no record of which migrations have run. Worse, the obvious answer
 isn't available: **`drizzle-orm/sqlite-proxy/migrator` imports `node:fs` and
@@ -187,6 +196,15 @@ even after the first tab closes. So the "open in another tab" screen offers a
 unfixable. (`forceReinitIfPreviouslyFailed` exists and the docs say it "should
 truly never be used," which is a strong enough hint to take at face value.)
 
+> **Measured, and softened** ([doc 16](16-phase-0-spike-report.md)). The refusal
+> is real and the exception is `NoModificationAllowedError`, confirmed by
+> running it rather than inferred from source. But the cache is scoped to the
+> **JS realm**, not the page — and since every open path spawns a fresh worker,
+> a retry after the holder releases lands in a clean realm and succeeds. The
+> screen can offer retry, with reload as the fallback. The catch: that only
+> stays true while every open goes through a new worker, so it is now a property
+> the driver must preserve and a line in the conformance suite.
+
 **d. "Capacitor initialised" in Phase 0 contradicts the phase's own done-when.**
 Doc 08 has Capacitor initialised in Phase 0 and the Capacitor SQLite driver in
 Phase 6. But with no driver, a native build in Phase 0 boots to an error — so
@@ -228,6 +246,10 @@ scaffold before this answer is an hour betting the answer is yes.
 | A8 | Backgrounding (R2b): background the Android tab for 10+ minutes with a call or an app switch, return, and see whether the handles survived |
 | A9 | **Verify the production build, not just the dev server** — that `sqlite3.wasm` and `sqlite3-opfs-async-proxy.js` are actually emitted and resolve under the `/LoreScribe/` base path (§7) |
 | A10 | Deploy and re-run A4–A9 on the Pages origin and on the phone |
+
+**Status: A1–A7 and A9 are green on local Chromium — see
+[doc 16](16-phase-0-spike-report.md).** A8 (backgrounding, R2b) and A10 need the
+deployed origin and the physical device, and are what actually close this gate.
 
 **Measurements.** Targets are opening bids — the point is that they're written
 down before the run, so "it felt fine" isn't an answer. A missed target is either

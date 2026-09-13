@@ -20,6 +20,7 @@ Read in order:
 | [13 — Legal & compliance](13-legal-and-compliance.md) | Six exposure surfaces and the mechanism for each — routing, structural floor, provenance, dependency licences, real people, data handling |
 | [14 — References](14-references.md) | Everything consulted: opened and read (pinned to commits), referred to, or cited from general knowledge and flagged for verification |
 | [15 — Phase 0 plan](15-phase-0-plan.md) | **The build starts here.** What has to be *measured* before Phase 0 may end, the four gates, and four defects found in the plan while writing it |
+| [16 — Gate A spike report](16-phase-0-spike-report.md) | **The measurements.** The storage bet holds; two of the plan's assumptions did not survive contact with a real browser |
 
 Also: [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) (what is derived from
 whom, and the notices MIT requires) and
