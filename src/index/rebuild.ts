@@ -1,7 +1,6 @@
 import type { SqlDriver } from '../db/driver';
-import { sceneGlobalRank } from '../domain/sortKey';
-import { detectMentions, type AliasEntry } from '../domain/mentions';
-import { uuidv7 } from '../data/ids';
+import { rankUpdates, IN_PROJECT } from './sceneRank';
+import { indexScene, loadAliases, type SceneIndexRow } from './sceneIndex';
 import {
   DERIVED_KINDS, REVISIONS, indexStatus, markStale, recordBuild, recordFailure,
   type DerivedKind, type KindStatus,
@@ -60,31 +59,12 @@ export interface Rebuilder {
 async function rebuildRanks(
   driver: SqlDriver, projectId: string, onProgress?: (p: RebuildProgress) => void,
 ): Promise<number> {
-  const { rows } = await driver.query(
-    `SELECT s.id, b.sort_key, p.sort_key, c.sort_key, s.sort_key, s.global_rank
-     FROM scene s
-     JOIN chapter c ON c.id = s.chapter_id
-     JOIN book b    ON b.id = c.book_id
-     LEFT JOIN part p ON p.id = c.part_id
-     WHERE b.project_id = ?`, [projectId], 'all');
-
-  const writes: { sql: string; params: unknown[] }[] = [];
-  for (const r of rows as unknown[][]) {
-    const rank = sceneGlobalRank({
-      bookKey: String(r[1] ?? ''),
-      partKey: r[2] as string | null,
-      chapterKey: String(r[3] ?? ''),
-      sceneKey: String(r[4] ?? ''),
-    });
-    // Only the rows that actually move. A rebuild of an already-correct index
-    // should be close to free, or nobody will press the button.
-    if (rank !== r[5]) writes.push({ sql: 'UPDATE scene SET global_rank = ? WHERE id = ?', params: [rank, r[0]] });
+  const { updates, examined } = await rankUpdates(driver, IN_PROJECT, [projectId]);
+  for (let i = 0; i < updates.length; i += 200) {
+    await driver.batch(updates.slice(i, i + 200), true);
+    onProgress?.({ kind: 'rank', done: Math.min(i + 200, updates.length), total: updates.length });
   }
-  for (let i = 0; i < writes.length; i += 200) {
-    await driver.batch(writes.slice(i, i + 200), true);
-    onProgress?.({ kind: 'rank', done: Math.min(i + 200, writes.length), total: writes.length });
-  }
-  return (rows as unknown[][]).length;
+  return examined;
 }
 
 /* --------------------------------------------------------------------- fts */
@@ -150,66 +130,29 @@ async function rebuildFts(driver: SqlDriver, projectId: string): Promise<number>
 
 /* ---------------------------------------------------------------- mentions */
 
-async function loadAliases(driver: SqlDriver, projectId: string): Promise<AliasEntry[]> {
-  const { rows } = await driver.query(
-    // linkable_from_scene_id is resolved to that scene's rank here, because the
-    // matcher compares ranks, not ids — an alias that is itself a spoiler is
-    // linkable from a position in the book, not from a particular row.
-    `SELECT a.entity_id, a.alias, a.auto_link, s.global_rank
-     FROM entity_alias a
-     JOIN entity e ON e.id = a.entity_id
-     LEFT JOIN scene s ON s.id = a.linkable_from_scene_id
-     WHERE e.project_id = ? AND e.deleted_at IS NULL`, [projectId], 'all');
-  return (rows as unknown[][]).map((r) => ({
-    entityId: r[0] as string,
-    alias: r[1] as string,
-    autoLink: Number(r[2]) !== 0,
-    linkableFromRank: (r[3] as string | null) ?? null,
-  }));
-}
-
 async function rebuildMentions(
   driver: SqlDriver, projectId: string, onProgress?: (p: RebuildProgress) => void,
 ): Promise<number> {
   const aliases = await loadAliases(driver, projectId);
-  const { rows: sceneRows } = await driver.query(
-    `SELECT s.id, s.content_text, s.pov_entity_id, s.global_rank
+  const { rows } = await driver.query(
+    `SELECT s.id, s.title, s.content_text, s.global_rank, s.pov_entity_id
      FROM scene s JOIN chapter c ON c.id = s.chapter_id JOIN book b ON b.id = c.book_id
      WHERE b.project_id = ? AND s.deleted_at IS NULL
      ORDER BY s.global_rank`, [projectId], 'all');
-  const scenes = sceneRows as unknown[][];
+  const scenes = (rows as unknown[][]).map((r): SceneIndexRow => ({
+    id: r[0] as string,
+    title: r[1] as string | null,
+    contentText: r[2] as string | null,
+    globalRank: r[3] as string | null,
+    povEntityId: r[4] as string | null,
+  }));
 
+  // One scene at a time, through the same function the write path uses. A
+  // rebuild that applied different rules to the same rows would be a rebuild
+  // that changes the data rather than restoring it.
   let covered = 0;
   for (let i = 0; i < scenes.length; i++) {
-    const [sceneId, text, povEntityId, rank] =
-      scenes[i] as [string, string | null, string | null, string | null];
-
-    // Rule 1: only the matcher's own unconfirmed rows go. A confirmed mention
-    // is the writer's judgement and an explicit one came from the prose itself.
-    await driver.query(
-      'DELETE FROM mention WHERE scene_id = ? AND method = \'alias_match\' AND confirmed = 0',
-      [sceneId], 'run');
-
-    const { rows: keptRows } = await driver.query(
-      'SELECT entity_id FROM mention WHERE scene_id = ?', [sceneId], 'all');
-    const kept = new Set((keptRows as unknown[][]).map((r) => String(r[0])));
-
-    const { mentions } = detectMentions(text ?? '', aliases, {
-      sceneRank: rank, povEntityId,
-    });
-
-    const now = Date.now();
-    const inserts = mentions
-      .filter((m) => !kept.has(m.entityId))
-      .map((m) => ({
-        sql: `INSERT INTO mention (id,scene_id,entity_id,role,start_offset,end_offset,
-                alias_used,method,confidence,confirmed,created_at)
-              VALUES (?,?,?,?,?,?,?,?,?,0,?)`,
-        params: [uuidv7(now), sceneId, m.entityId, m.role, m.startOffset, m.endOffset,
-          m.aliasUsed, m.method, 1.0, now],
-      }));
-    if (inserts.length) await driver.batch(inserts, true);
-    covered += inserts.length + kept.size;
+    covered += await indexScene(driver, scenes[i]!, aliases);
     onProgress?.({ kind: 'mention', done: i + 1, total: scenes.length });
   }
   return covered;
