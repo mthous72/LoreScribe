@@ -350,13 +350,16 @@ most of the 40 existing tests. Add the platform target — Android via Capacitor
 against a Python/FastAPI/PyInstaller stack — and the case closes.
 
 But the reverse also holds, and it's the valuable half: **the hard-won parts are
-pure functions with no I/O.** `repetition_guard`, `prose_sanitizer`,
-`structured_output`, `gap_finder`, `stats_service`, `model_routing`, `impact`,
-`json_repair`, `connections`, `lore_digest` come to roughly a thousand lines of
-dependency-free Python. Porting them to TypeScript is a couple of days of
-mechanical work and skips months of discovery. They should be ported *early* —
-during Phase 1, before the AI work — because several of them (gap finder, stats,
-impact) need no model at all and make Phase 1 useful on its own.
+pure, self-contained algorithms** — repetition guarding, prose sanitation,
+structured-output shaping, gap finding, statistics, reasoning-budget policy. Their
+value is not the code, it's knowing that they need to exist and which parameter
+values work.
+
+So they are **specified, not ported** ([D10](10-decisions.md)): written up as
+behaviour specs in [doc 12](12-algorithms.md) and implemented fresh in TypeScript
+in [Phase 0b](08-roadmap.md). That keeps LoreScribe unencumbered, produces code
+that reads like the rest of the codebase, and still skips the months of discovery —
+which was always the actual prize.
 
 Worth deciding explicitly: whether LoreScribe can read a `.libriscribe.json`
 bundle. Given both are yours, an importer is a few hours and makes the new app

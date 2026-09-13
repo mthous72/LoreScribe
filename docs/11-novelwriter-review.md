@@ -162,21 +162,15 @@ that phrase has different consequences per source:
 | LibriScribe | **MIT** — Fernando Guerra (original), mthous72 (fork) | Reuse permitted, but the copyright and permission notice must be retained. |
 | LoreScribe | **Unlicense** (public domain) | "No conditions whatsoever" — which is in direct tension with shipping MIT-derived files inside it. |
 
-The Phase 0b ports are fine in substance — `repetition_guard`, `prose_sanitizer`,
-`structured_output`, `gap_finder`, `impact` and `stats_service` are all the fork's
-own additions (the B-numbered features), so they're your copyright to relicense.
-But they live in an MIT repo alongside Guerra's original work, so it's worth being
-deliberate rather than assuming. Three clean options:
+**Settled by [D10](10-decisions.md): ideas only, nothing ported, from either
+source.** That removes the question entirely — LoreScribe stays Unlicense, with no
+MIT notice to carry and no GPL-3 boundary to reason about. The findings live as
+behaviour specifications in [doc 12](12-algorithms.md) and are implemented fresh.
 
-1. **Relicense LoreScribe MIT** and carry attribution for anything derived. Simplest,
-   and it removes the tension permanently. *Recommended.*
-2. **Keep Unlicense, isolate the ports** in a directory with their own MIT header
-   preserving both copyright lines. Per-directory licensing is normal.
-3. **Re-implement from the documented behaviour** rather than the source. Doc 09
-   describes each algorithm in enough detail to do this, and the TypeScript port is
-   a rewrite anyway — but it's more work for no benefit if you take option 1.
+Both projects still earn their acknowledgement in the README: what they contributed
+is a map of which problems exist and which solutions work, which is most of the
+value and none of the code.
 
-Either way: **nothing from novelWriter gets copied**, only learned from. Its
-contribution guide also asks that no AI-generated content be submitted to it, which
-is worth respecting in the other direction too — there's no reason for this project
-to send anything upstream.
+novelWriter's contribution guide also asks that no AI-generated content be submitted
+to it — worth respecting in the other direction too. There's no reason for this
+project to send anything upstream.

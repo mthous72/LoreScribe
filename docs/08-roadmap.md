@@ -26,27 +26,31 @@ kills it. Nothing before Phase 2 should take longer than it has to.
 - Vitest, Playwright, CI, lint/format.
 - **Done when:** a project can be created, persisted and reloaded after a refresh.
 
-## Phase 0b — Port the LibriScribe utilities *(~3 days, runs alongside Phase 1)*
+## Phase 0b — Implement the specified algorithms *(~1 week, runs alongside Phase 1)*
 
-Roughly a thousand lines of dependency-free Python in
-[`mthous72/libriscribe`](https://github.com/mthous72/libriscribe) encode failure
-modes that took several releases to find. They are pure functions with no I/O, so
-the TypeScript port is mechanical. Doing it now — before any AI work — skips months
-of rediscovery, and three of them need no model at all, which makes Phase 1 more
-useful on its own. See [doc 09](09-libriscribe-review.md).
+**Nothing is ported** ([D10](10-decisions.md)). These are written fresh in
+TypeScript from the behaviour specifications in [doc 12](12-algorithms.md), which
+is the implementation reference — the source repositories are not, and nobody needs
+to open them again.
 
-| Port | Source | Needs a model? |
+Doing this before the AI work skips months of rediscovery, and five of the eight
+need no model at all, which makes Phase 1 more useful standalone.
+
+| Build | Spec | Needs a model? |
 |---|---|---|
-| Repetition guard (ban list + violation check) | `utils/repetition_guard.py` | no |
-| Prose sanitiser (think-blocks, mojibake, echo) | `utils/prose_sanitizer.py` | no |
-| Gap finder | `services/gap_finder.py` | no |
-| Readability & pacing stats | `services/stats_service.py` | no |
-| Impact scan (adapted to `mention` queries) | `services/impact.py` | no |
-| Structured-output schema builders | `utils/structured_output.py` | at call time |
-| JSON repair | `utils/json_repair.py` | at call time |
-| Provider route / fallback-chain parsing | `utils/model_routing.py` | at call time |
+| Repetition guard (ban list, render, violation check, revision report) | [§1](12-algorithms.md) | no |
+| Prose sanitiser, incl. the streaming think-block state machine | [§2](12-algorithms.md) | no |
+| Word counter | [§6](12-algorithms.md) | no |
+| Readability & pacing statistics | [§7](12-algorithms.md) | no |
+| Structural gap finder | [§8](12-algorithms.md) | no |
+| Evidence verification | [§3](12-algorithms.md) | at call time |
+| Structured-output schema builders + strict detection | [§5](12-algorithms.md) | at call time |
+| Reasoning-allowance tracking | [§4](12-algorithms.md) | at call time |
 
-Each port lands with the tests from `tests/` translated alongside it.
+Tests are written **from the specification**, not from anyone's existing test
+suite — including the properties the spec calls out explicitly: the sanitiser is
+idempotent, the word counter matches hand-verified reference files, the ban list
+never contains a proper noun, and staggered fragments merge into one phrase.
 
 ## Phase 1 — The graph, with no AI at all *(~3 weeks)*
 - Codex CRUD for all entity types, aliases, relationships.

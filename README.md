@@ -19,3 +19,18 @@ LoreScribe is the successor to [LibriScribe](https://github.com/mthous72/librisc
 [parity bar](docs/08-roadmap.md) it has to clear first. It's built as a personal
 tool and isn't distributed; LibriScribe stays where it is for anyone already using
 it. Founding decisions are logged in [doc 10](docs/10-decisions.md).
+
+## Acknowledgements
+
+No code is taken from any other project — LoreScribe is written fresh and released
+into the public domain. Two projects nonetheless shaped its design, and the debt is
+worth stating:
+
+- **[LibriScribe](https://github.com/mthous72/libriscribe)** (MIT) by Fernando
+  Guerra and Lenxys, forked and substantially extended — a hard-won record of what
+  goes wrong around a language model at novel length. Most of
+  [doc 12](docs/12-algorithms.md) exists because these problems were found there
+  first.
+- **[novelWriter](https://github.com/saga-soft/novelWriter)** (GPL-3) by Veronica
+  Berglyd Olsen — a decade of care on storage robustness, cross-referencing and
+  project structure. Ideas only; no GPL code is used or derived from.

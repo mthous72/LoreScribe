@@ -72,6 +72,27 @@ writing surface. Two consequences fall out of this, and both are real — see
   on it** — if it doesn't hold, the fallback is a service-worker COI shim, and if
   that fails too, D8 gets revisited.
 
+### D10 — Ideas only; no code is ported from anywhere
+Nothing is copied from LibriScribe or novelWriter. Their contribution is what was
+*learned* — which failure modes exist, which parameter values work, which order the
+steps go in — and every line of LoreScribe is written fresh.
+
+This resolves the licensing tension in [doc 11](11-novelwriter-review.md) outright:
+**LoreScribe stays Unlicense**, no MIT attribution to carry, no GPL-3 contamination
+to reason about, no per-directory licence split.
+
+The one cost is a real risk, and it is mitigated rather than accepted: ideas held
+only as a memory of someone else's code decay fast. So the findings are written up
+as **behaviour specifications** in [doc 12](12-algorithms.md), at implementable
+fidelity. That document is the implementation reference from here on; the source
+repositories are not, and no one needs to open them again.
+
+Phase 0b is accordingly an *implementation* phase, not a port. It costs more than
+a transliteration would have — roughly a week rather than three days — and buys a
+clean licence, TypeScript that reads like the rest of the codebase rather than
+transliterated Python, and tests written against specified behaviour instead of
+against whatever the original happened to do.
+
 ### D9 — Android keeps Capacitor even though nothing ships to a store
 A plain PWA on Android would drop Capacitor entirely, which is tempting under D7.
 Rejected, for one reason: **browser-managed storage can be evicted.** OPFS and

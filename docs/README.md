@@ -15,8 +15,11 @@ Read in order:
 | [08 — Roadmap](08-roadmap.md) | Phased plan, product rules, sequencing |
 | [09 — LibriScribe review](09-libriscribe-review.md) | What to take from `mthous72/libriscribe`, what to leave, and why this is a new app rather than a refactor |
 | [10 — Decision log](10-decisions.md) | D1–D9: the founding choices and why |
-| [11 — novelWriter review](11-novelwriter-review.md) | What to take from `saga-soft/novelWriter` — storage robustness, role-typed references, and a licensing constraint |
+| [11 — novelWriter review](11-novelwriter-review.md) | What to take from `saga-soft/novelWriter` — storage robustness and role-typed references |
+| [12 — Algorithm specs](12-algorithms.md) | **The implementation reference.** Behaviour specs for the non-obvious algorithms, written to be built from scratch |
 
 **If you read one thing:** doc 03. It's the product.
 **If you read two:** doc 09 — it changes parts of 01, 03, 04, 07 and 08.
 **Before building:** doc 10, then the `opfs-sahpool` spike at the top of Phase 0.
+**When building Phase 0b:** doc 12 only. Nothing is ported from anywhere
+([D10](10-decisions.md)), so the source repositories are not a dependency.
