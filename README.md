@@ -10,9 +10,11 @@ Design docs live in [`docs/`](docs/) — start with the
 which is the core of the system. The draft database schema is
 [`db/schema.sql`](db/schema.sql).
 
-**Shape of the thing:** React + TypeScript + Capacitor (one codebase → PWA and
-Android APK), local-first SQLite, the writer's own API key called directly
-(OpenRouter first, OpenAI-compatible local endpoints next).
+**Shape of the thing:** React + TypeScript, local-first SQLite, the writer's own
+API key called directly (OpenRouter first, OpenAI-compatible local endpoints
+next). Capacitor wraps the same build as an Android APK in Phase 6 — it is not
+a dependency yet, and there is no web app manifest or service worker yet
+either, so the app is a website rather than an installable offline PWA today.
 
 **Status: Phase 0 complete; Phase 1 next.** The storage bet holds —
 `opfs-sahpool` over OPFS runs on a static origin with no COOP/COEP headers, at
@@ -45,10 +47,13 @@ each, [`docs/14`](docs/14-references.md) lists everything consulted, and
 
 - **[LibriScribe](https://github.com/mthous72/libriscribe)** (MIT) by Fernando
   Guerra and Lenxys, forked and substantially extended — a hard-won record of what
-  goes wrong around a language model at novel length. Portions of LoreScribe are
-  derived from it, with attribution in each file; most of
-  [doc 12](docs/12-algorithms.md) exists because these problems were found there
-  first.
+  goes wrong around a language model at novel length. **Nothing is currently
+  derived from it** — every algorithm in [doc 12](docs/12-algorithms.md) was
+  written fresh against the specification, and `tools/third_party_overlap.py`
+  reports no derived lines. Porting is *permitted* under
+  [D11](docs/10-decisions.md) and would carry the attribution header in each
+  file; none does, because none needs to. Doc 12 exists because these problems
+  were found there first, which is a debt of knowledge rather than of code.
 - **[novelWriter](https://github.com/saga-soft/novelWriter)** (GPL-3) by Veronica
   Berglyd Olsen — a decade of care on storage robustness, cross-referencing and
   project structure. **Ideas only; no GPL code is used or derived from**, which is

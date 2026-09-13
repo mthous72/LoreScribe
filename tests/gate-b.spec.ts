@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoApp } from './support';
 import { execFileSync } from 'node:child_process';
 
 // Gate B. The conformance suite is the mechanism against R4: it is written
@@ -7,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 // there is real data". docs/15 §1.
 
 test('B2 — the driver conformance suite', async ({ page }) => {
-  await page.goto('./');
+  await gotoApp(page, './');
   const cases = await page.evaluate(() => window.runConformance('lorescribe-conf'));
 
    
@@ -34,7 +35,7 @@ rows = c.execute("""
 print(json.dumps([r[0] for r in rows]))
 `]).toString());
 
-  await page.goto('./');
+  await gotoApp(page, './');
   const actual = await page.evaluate(() => window.schemaDump('lorescribe-dump'));
 
   expect(expected.length).toBeGreaterThan(50);
@@ -49,7 +50,7 @@ test('B4 — a database survives a close and reopen in every journal mode we shi
   // SQLITE_CANTOPEN — which reads as "no such file" and means "you did not set
   // locking_mode=exclusive first". The writer's novel would have opened once and
   // never again. docs/16.
-  await page.goto('./');
+  await gotoApp(page, './');
   for (const mode of ['delete', 'wal'] as const) {
     const r = await page.evaluate((m) => window.reopenUnderJournalMode(`reopen-${m}`, m), mode);
     expect(r, `journal_mode=${mode} did not survive a reopen: ${JSON.stringify(r)}`)
@@ -60,7 +61,7 @@ test('B4 — a database survives a close and reopen in every journal mode we shi
 test('B5 — migration 002 seeds the entity types, and re-running changes nothing', async ({ page }) => {
   // entity.type_key references entity_type, and 001 ships no rows, so without
   // this a fresh database cannot hold a single entity. docs/16.
-  await page.goto('./');
+  await gotoApp(page, './');
   const state = await page.evaluate(() => window.migrationState('lorescribe-migstate')) as {
     firstApplied: number[]; secondApplied: number[]; userVersion: number;
     types: string[]; audit: string[];

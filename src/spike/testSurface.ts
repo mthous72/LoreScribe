@@ -17,6 +17,8 @@ declare global {
     openOnly: (vfsName: string, clearOnInit?: boolean) => Promise<unknown>;
     /** Test surface: hold the VFS open, returning a handle to release it. */
     holdOpen: (vfsName: string) => Promise<unknown>;
+    /** Test surface: pause the VFS, unpause it, and use the database again. */
+    pauseAndResume: (vfsName: string) => Promise<unknown>;
     /** Test surface: the editor spike, doc 08's named Tiptap risk. */
     runEditorSpike: (words?: number, aliasCount?: number, keystrokes?: number) => Promise<EditorSpikeResult>;
     /** Test surface: what the migration runner produced. */
@@ -181,4 +183,28 @@ window.runEditorSpike = async (words, aliasCount, keystrokes) => {
   try {
     return await runEditorSpike(mount, { words, aliasCount, keystrokes });
   } finally { mount.remove(); }
+};
+
+window.pauseAndResume = async (vfsName) => {
+  const { driver } = await WorkerSqlDriver.open({
+    path: '/lorescribe-resume.db', vfsName, minimumCapacity: 8, clearOnInit: true,
+  });
+  try {
+    await migrate(driver);
+    await driver.query('INSERT INTO project (id,title,created_at,updated_at) VALUES (?,?,?,?)',
+      ['pr_resume', 'Resume', Date.now(), Date.now()], 'run');
+    const before = await driver.query('SELECT COUNT(*) FROM project', [], 'get');
+    await driver.pause();
+    await driver.unpause();
+    const after = await driver.query('SELECT COUNT(*) FROM project', [], 'get');
+    const integrity = await driver.query('PRAGMA integrity_check', [], 'get');
+    return {
+      ok: true,
+      beforePause: Number((before.rows as unknown[])[0]),
+      afterUnpause: Number((after.rows as unknown[])[0]),
+      integrity: String((integrity.rows as unknown[])[0]),
+    };
+  } catch (e) {
+    return { ok: false, message: (e as { message?: string })?.message ?? String(e) };
+  } finally { await driver.close().catch(() => {}); driver.terminate(); }
 };

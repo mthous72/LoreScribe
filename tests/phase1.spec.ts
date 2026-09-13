@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoApp } from './support';
 
 // Phase 1 spikes. Doc 08 lists the Tiptap one among the things to measure
 // before the phase ends: a 5,000-word scene with live mention decorations.
@@ -6,7 +7,7 @@ import { test, expect } from '@playwright/test';
 test('the editor holds up at 5,000 words with a full cast highlighted', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto('./#/diagnostics');
+  await gotoApp(page, './#/diagnostics');
 
   const result = await page.evaluate(() => window.runEditorSpike());
   expect(errors, errors.join('\n')).toHaveLength(0);

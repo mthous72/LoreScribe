@@ -247,10 +247,25 @@ scaffold before this answer is an hour betting the answer is yes.
 | A9 | **Verify the production build, not just the dev server** — that `sqlite3.wasm` and `sqlite3-opfs-async-proxy.js` are actually emitted and resolve under the `/LoreScribe/` base path (§7) |
 | A10 | Deploy and re-run A4–A9 on the Pages origin and on the phone |
 
-**Status: Phase 0 is complete.** Gates A, B, C and D are green, A8 included —
-the backgrounding test (R2b) passed on a real Android device against the
+**Status: Phase 0's storage question is settled; five gate items are not built.**
+The backgrounding test (R2b, A8) passed on a real Android device against the
 deployed origin, so the web path holds on the primary platform and Capacitor
-stays in Phase 6. Numbers and caveats in [doc 16](16-phase-0-spike-report.md).
+stays in Phase 6. Numbers in [doc 16](16-phase-0-spike-report.md).
+
+An audit at the start of Phase 1 found that "all four gates are green" was an
+overclaim, and the specifics are worth keeping rather than quietly fixing:
+
+| Item | Actual state |
+|---|---|
+| **A5** takeover | `src/lock/projectLock.ts` is complete and **has no importers**. No Web Lock is taken, `project_lock` is never written, no holder label, no yield request. What protects the database is the VFS refusing the second tab — real protection, but the opaque storage error this gate existed to convert into a handled state |
+| **A6** pool exhaustion legible | Overflow arrives as `SQLITE_CANTOPEN`; the classifier matches `/SAH pool is full/`, which that string does not contain, so it falls through to `unknown` and renders the raw SQLite message. Untested |
+| **B5** Drizzle wired | `makeDb()` is called once and the result never queried. The contract it exists to prove has never executed |
+| **C1** shadcn/ui | Deferred deliberately ([doc 16](16-phase-0-spike-report.md)) |
+| **D2** Prettier | Dropped silently. Never installed, never waived |
+
+Two of those are waivers; three are gaps. They are listed here rather than in a
+backlog because this document's whole argument is that a gate you can declare
+green without meeting is not a gate.
 
 **Measurements.** Targets are opening bids — the point is that they're written
 down before the run, so "it felt fine" isn't an answer. A missed target is either

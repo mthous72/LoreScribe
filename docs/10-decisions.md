@@ -316,3 +316,27 @@ a desktop wrapper." But Tauri v2 has mobile targets and **no confirmable
 first-party PWA story**, so falling back to a native shell may mean giving up the
 web build rather than keeping both. This is an argument for taking the Phase 0
 spike seriously, not for flinching from its answer.
+
+### D19 — WAL is on for the web after all, and three licences joined the allowlist
+*Supersedes the WAL guidance in [D18](10-decisions.md) and
+[doc 01](01-architecture.md). Recorded because doc 10's own rule is that
+superseding means adding an entry, not editing one — and until this was written
+D18 read as live guidance contradicting what actually ships.*
+
+**WAL.** D18 reasoned that `opfs-sahpool` is single-connection by construction,
+so WAL's concurrency benefit is unavailable and it is not worth enabling. The
+premise is right and the conclusion was wrong: WAL's *per-commit* cost benefit
+is independent of concurrency, and autosave is one row per commit. Measured,
+autosave p95 is 6.1 ms under `delete` and 2.6 ms under `wal`
+([doc 16](16-phase-0-spike-report.md) §1). WAL ships, with
+`locking_mode=exclusive` applied first on every connection — an ordering that
+is not advice: without it a WAL database cannot be reopened at all.
+
+**Three licences.** [Doc 13 §4](13-legal-and-compliance.md) lists the dependency
+allowlist as MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, Unlicense, CC0 and public
+domain. `tools/check-licences.mjs` also permits **BlueOak-1.0.0, MIT-0 and
+Python-2.0**, which were added while getting the check to pass rather than by a
+decision. All three are permissive and non-copyleft, so the boundary doc 13
+actually cares about — nothing copyleft foreclosing a later release — is intact.
+They are named here so the allowlist and the document that describes it agree,
+and so the next addition has to be a decision rather than a convenience.

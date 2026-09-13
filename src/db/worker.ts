@@ -33,6 +33,10 @@ let sqlite3: any = null;
 let pool: PoolUtil | null = null;
 let db: AnyDb | null = null;
 let vfsName = '';
+/** Remembered so an unpause can reopen exactly what pause closed. */
+let openPath = '';
+let journalMode: string | null = null;
+let synchronous: string | undefined;
 
 /**
  * Prepared-statement cache.
@@ -117,11 +121,13 @@ function applyPragmas(): void {
  * (3.47+). `journal_mode` then REPORTS the mode it actually gave you rather than
  * failing, so we return the readback and never assume. docs/15 §3a.
  */
-function applyJournalMode(mode: string, synchronous?: string): { journalMode: string; lockingMode: string } {
+function applyJournalMode(mode: string, sync?: string): { journalMode: string; lockingMode: string } {
+  journalMode = mode;
+  synchronous = sync;
   // locking_mode=exclusive is already set by applyPragmas() on every open, which
   // is what makes WAL reachable here at all.
   db!.exec(`PRAGMA journal_mode = ${mode}`);
-  if (synchronous) db!.exec(`PRAGMA synchronous = ${synchronous}`);
+  if (sync) db!.exec(`PRAGMA synchronous = ${sync}`);
   return {
     journalMode: String(pragma('journal_mode')),
     lockingMode: String(pragma('locking_mode')),
@@ -148,6 +154,7 @@ async function open(req: OpenRequest): Promise<Diagnostics> {
     await pool.reserveMinimumCapacity(req.minimumCapacity);
   }
 
+  openPath = req.path;
   db = new pool.OpfsSAHPoolDb(req.path); // absolute path required
   applyPragmas();
   return diagnostics();
@@ -222,7 +229,14 @@ async function handle(m: Req): Promise<unknown> {
       return null;
     case 'unpause':
       await pool!.unpauseVfs();
-      return null;
+      // pause() closed the handle to let another context take the VFS; without
+      // reopening here the first query after a handoff dereferences a null db
+      // and throws a TypeError. The handoff is the mechanism D18 calls
+      // mandatory, so it has to actually come back.
+      db = new pool!.OpfsSAHPoolDb(openPath);
+      applyPragmas();
+      if (journalMode) applyJournalMode(journalMode, synchronous);
+      return diagnostics();
     case 'close':
       clearStmtCache();
       db?.close();

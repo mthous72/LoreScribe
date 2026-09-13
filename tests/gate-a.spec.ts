@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoApp } from './support';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
 // Gate A. The exit condition is measured numbers, not a working demo — a
@@ -8,7 +9,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 test('A1-A4, A6, A9 — the measurement run', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto('/');
+  await gotoApp(page);
 
   const result = await page.evaluate(async () => {
     const r = await window.runSpike(undefined as never, { clearOnInit: true });
@@ -36,11 +37,11 @@ test('A1-A4, A6, A9 — the measurement run', async ({ page }) => {
 
 test('A5 — a second tab is refused, and what the cached failure actually scopes to', async ({ context }) => {
   const tabA = await context.newPage();
-  await tabA.goto('/');
+  await gotoApp(tabA);
   expect(await tabA.evaluate(() => window.holdOpen('lorescribe-multitab'))).toMatchObject({ ok: true });
 
   const tabB = await context.newPage();
-  await tabB.goto('/');
+  await gotoApp(tabB);
   const blocked = await tabB.evaluate(() => window.openOnly('lorescribe-multitab'));
   expect(blocked).toMatchObject({ ok: false, reason: 'held-by-another-tab' });
    
@@ -63,11 +64,11 @@ test('A5 — a second tab is refused, and what the cached failure actually scope
 
 test('A5b — pauseVfs/unpauseVfs gives a real cooperative handoff', async ({ context }) => {
   const tabA = await context.newPage();
-  await tabA.goto('/');
+  await gotoApp(tabA);
   expect(await tabA.evaluate(() => window.holdOpen('lorescribe-handoff'))).toMatchObject({ ok: true });
 
   const tabB = await context.newPage();
-  await tabB.goto('/');
+  await gotoApp(tabB);
   expect(await tabB.evaluate(() => window.openOnly('lorescribe-handoff')))
     .toMatchObject({ ok: false, reason: 'held-by-another-tab' });
 
@@ -80,10 +81,19 @@ test('A5b — pauseVfs/unpauseVfs gives a real cooperative handoff', async ({ co
   expect((taken as { count: number }).count).toBe(1);
 });
 
+test('A5c — after a pause/unpause handoff the database is usable again', async ({ page }) => {
+  // pause() closes the handle so another context can take the VFS. Until this
+  // test existed, unpause() reopened nothing and the next query dereferenced a
+  // null database — the handoff D18 calls mandatory did not come back.
+  await gotoApp(page, './');
+  const result = await page.evaluate(() => window.pauseAndResume('lorescribe-resume'));
+  expect(result).toMatchObject({ ok: true, beforePause: 1, afterUnpause: 1, integrity: 'ok' });
+});
+
 test('A7 — data survives an abrupt kill mid-write', async ({ browser }) => {
   const ctx = await browser.newContext();
   const p1 = await ctx.newPage();
-  await p1.goto('/');
+  await gotoApp(p1);
 
   await p1.evaluate(async () => {
     const held = await window.holdOpen('lorescribe-durability');
@@ -104,7 +114,7 @@ test('A7 — data survives an abrupt kill mid-write', async ({ browser }) => {
   await p1.close();
 
   const p2 = await ctx.newPage();
-  await p2.goto('/');
+  await gotoApp(p2);
   const survived = await p2.evaluate(() => window.reopenAndCount('lorescribe-durability', 'book'));
   // The 200 committed writes must all be there, and the file must not be corrupt.
   expect(survived).toMatchObject({ ok: true, integrity: 'ok' });

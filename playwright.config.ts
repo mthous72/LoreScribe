@@ -34,6 +34,7 @@ export default defineConfig({
     command: 'npx vite build && npx vite preview --port 4173 --strictPort',
     url: 'http://localhost:4173',
     reuseExistingServer: false,
+    env: { VITE_TEST_SURFACE: '1' },
     timeout: 180_000,
   },
 });

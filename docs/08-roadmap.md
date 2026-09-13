@@ -90,8 +90,10 @@ CPython's numbers because both thresholds were calibrated against them.
 
 Tests are written **from the specification** — including the properties the spec
 calls out explicitly: the sanitiser is
-idempotent, the word counter matches hand-verified reference files, the ban list
-never contains a proper noun, and staggered fragments merge into one phrase.
+idempotent, the word counter matches hand-verified counts, the ban list never
+contains a proper noun, and staggered fragments merge into one phrase. (The
+counter's cases are inline in the test rather than in fixture files, so the
+arithmetic sits beside the expectation where a reviewer can check it.)
 
 ## Phase 1 — The graph, with no AI at all *(~3 weeks)*
 - Codex CRUD for all entity types, aliases, relationships.

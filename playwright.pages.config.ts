@@ -11,9 +11,11 @@ const executablePath = existsSync(localChromium) ? localChromium : undefined;
 
 export default defineConfig({
   testDir: './tests',
-  // The live-origin spike is opt-in; it needs a deployment to exist.
+  // Every gate, not a subset. Doc 16 claimed the whole suite re-ran under the
+  // Pages prefix; only B and C actually did, so gate A's multi-tab and kill
+  // tests were never exercised at the base path they exist to protect.
+  // (The live-origin spike stays out: it needs a real deployment.)
   testIgnore: '**/live/**',
-  testMatch: /gate-(b|c)\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   timeout: 240_000,
@@ -26,6 +28,6 @@ export default defineConfig({
     url: 'http://localhost:4174/LoreScribe/',
     reuseExistingServer: false,
     timeout: 180_000,
-    env: { VITE_BASE: '/LoreScribe/' },
+    env: { VITE_BASE: '/LoreScribe/', VITE_TEST_SURFACE: '1' },
   },
 });
