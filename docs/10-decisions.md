@@ -268,3 +268,35 @@ up a bill, and it is expected to be raised the first time it gets in the way of
 legitimate work. Utility roles (summarise, extract, critique, embed) default to
 the cheapest capable model on first run, per [doc 06](06-ai-pipeline.md); drafting
 does not, since quality there is the whole point.
+
+### D18 — The storage bet is confirmed, and it costs more to reverse than it looked
+*Confirms [D8](10-decisions.md); does not supersede it. Detail and sources in
+[doc 15 §7](15-phase-0-plan.md).*
+
+D8 chose `opfs-sahpool` on the reasoning that static hosting can't set COOP/COEP.
+That reasoning was checked against sqlite.org rather than left as an assumption,
+and it holds exactly: the VFS "does not require COOP/COEP HTTP headers," and the
+documentation routes clients who can't set those headers to it specifically. Three
+things follow that were not obvious when D8 was taken.
+
+**The hosting choice doesn't permit sahpool, it forces it — and forces more
+besides.** sahpool pre-opens and holds every access handle in its pool, so it is
+*single-connection by construction*. That makes the multi-tab strategy mandatory
+rather than a nicety (a Web Lock, a `pauseVfs()` handoff, and a takeover screen
+offering *reload* rather than retry, since the failed install is cached for the
+life of the page), and it removes WAL's reason to exist on the web. One decision,
+three consequences, none of them optional.
+
+**Two drivers is now a decision with a reason, not a default.** The available
+simplification — use `@capacitor-community/sqlite` on both platforms — is a trap.
+Its web implementation holds the whole database in RAM via sql.js and **a
+committed transaction is not durable until the app calls `saveToStore()`**, while
+native persists automatically. The same repository code, run both ways, loses data
+on exactly one of them. So the `SqlDriver` split stands, and the conformance suite
+across both implementations is load-bearing rather than tidy-minded.
+
+**Reversing D8 is dearer than assumed.** The fallback ladder read "COI shim, then
+a desktop wrapper." But Tauri v2 has mobile targets and **no confirmable
+first-party PWA story**, so falling back to a native shell may mean giving up the
+web build rather than keeping both. This is an argument for taking the Phase 0
+spike seriously, not for flinching from its answer.

@@ -13,6 +13,35 @@ it**. Licence relationships are in
 | **LibriScribe** — https://github.com/mthous72/libriscribe (MIT) | README; `services/context_builder.py`, `milestone_verifier.py`, `thread_tracker.py`, `char_state.py`, `connections.py`, `impact.py`, `lore_digest.py`, `gap_finder.py` (head), `sandbox.py` (head), `stats_service.py` (head); `utils/repetition_guard.py`, `prose_sanitizer.py`, `prose_steering.py`, `model_routing.py`, `structured_output.py`, `cost_tracker.py`, `style_register.py`, `llm_client.py` (reasoning-budget sections); `prompts/README.md`; test and frontend file listings; `LICENSE` | commit `51d4ba9` (2026-07-13) |
 | **novelWriter** — https://github.com/saga-soft/novelWriter (GPL-3) | README; `core/index.py` and `indexdata.py` (heads), `core/document.py` (write path), `core/storage.py` (head), `core/sessions.py`, `core/projectxml.py` (version handling), `text/counting.py`, `manuscript/buildsettings.py` (keys), `constants.py` and `enum.py` (keyword and class constants); directory layout; test listing; `LICENSE.md` | commit `7fed728` (2026-09-09) |
 
+## Verified against primary sources (2026-09-13, for [doc 15](15-phase-0-plan.md))
+
+Everything Phase 0's storage design rests on was moved out of the
+general-knowledge tier below and checked. Where a claim could **not** be
+confirmed it is marked as such here rather than quietly promoted — that list is
+as useful as the verified one.
+
+| Source | What it settled |
+|---|---|
+| [SQLite WASM — Persistent Storage Options](https://sqlite.org/wasm/doc/trunk/persistence.md) | `opfs-sahpool` needs no COOP/COEP and is the documented choice for hosts that can't set headers; it is single-connection by construction; pool capacity, sizing rule and the `pauseVfs()`/`unpauseVfs()` handoff; WAL *is* possible since 3.47 via `locking_mode=exclusive`, with little benefit on sahpool |
+| [sqlite-wasm README](https://github.com/sqlite/sqlite-wasm) · [Worker1 API](https://sqlite.org/wasm/doc/trunk/api-worker1.md) | `sqlite3Worker1Promiser` deprecated 2026-04-15 and "actively discouraged"; required `optimizeDeps.exclude`; the package's own demo can't be hosted on Pages |
+| [MDN — `createSyncAccessHandle()`](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemFileHandle/createSyncAccessHandle) | Dedicated workers only; the handle takes an exclusive per-file lock that spans tabs |
+| [SQLite PRAGMA reference](https://sqlite.org/pragma.html#pragma_user_version) | `user_version` is an uninterpreted header integer — sound as a migration source of truth |
+| [Drizzle — proxy driver](https://orm.drizzle.team/docs/sqlite/connect-drizzle-proxy) · [custom migrations](https://orm.drizzle.team/docs/kit-custom-migrations) | No sqlite-wasm entry exists; `sqlite-proxy` is the path; the callback returns **positional arrays**, not row objects; the proxy migrator is Node-only |
+| [Vite — static deploy](https://vite.dev/guide/static-deploy) · [`base`](https://vite.dev/config/shared-options) · [Vite 8 announcement](https://vite.dev/blog/announcing-vite8) | Pages `base` form; Vite 8 switched to Rolldown days ago — hence pinning 7 |
+| [MDN — Storage quotas and eviction](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria) | 60%-of-disk per origin over a pool shared with IndexedDB and Cache; eviction is LRU, all-or-nothing per origin, and skips persisted origins; Chrome doesn't proactively evict idle origins |
+| [W3C Web Locks](https://w3c.github.io/web-locks/) · [MDN](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) | Per-origin across tabs and workers; termination releases held locks and drops queued requests, per spec; no cooperative-handoff notification exists; `steal` semantics |
+| [Capacitor support policy](https://capacitorjs.com/docs/main/reference/support-policy) · [PWA support](https://capacitorjs.com/docs/web/progressive-web-apps) | v8, min API 24 — comfortably under [D13](10-decisions.md)'s API 31 target; one build serving both web and native remains first-class |
+| [`@capacitor-community/sqlite` — Web usage](https://github.com/capacitor-community/sqlite/blob/master/docs/Web-Usage.md) · [transactions](https://github.com/capacitor-community/sqlite/blob/master/docs/SQLiteTransaction.md) · [API](https://github.com/capacitor-community/sqlite/blob/master/docs/API.md) | Its web implementation is sql.js in RAM with an explicit `saveToStore()` for durability — which is why we don't use it on the web; Android is WAL2 by default; app-private storage is not quota-evictable; Auto Backup must be disabled in the manifest |
+
+**Checked and *not* confirmed** — recorded so nobody treats them as settled:
+current (2026) Chrome `persist()` heuristics, whose canonical write-up dates from
+2020; any per-file size limit for `opfs-sahpool`; the exact `DOMException.name`
+for the multi-tab collision across browsers; official endorsement of the
+`404.html` SPA-fallback convention on Pages; Vite 8 / Rolldown interaction with
+sqlite-wasm, which nobody has exercised yet; the precise failure mode of
+`journal_mode=WAL` without `locking_mode=exclusive`; any published performance-
+pragma set for sqlite-wasm; and whether Tauri v2 supports a PWA target.
+
 ## Referred to, not opened
 
 - **LibriScribe (original)** — https://github.com/guerra2fernando/libriscribe by
@@ -44,17 +73,16 @@ source, **especially the legal and policy items**, which change.
   not as a statement of any jurisdiction's law.
 
 **Platform and browser** (`docs/01`, `docs/10`)
-- `@sqlite.org/sqlite-wasm`: the OPFS VFS's requirement for cross-origin isolation
-  (COOP/COEP) and the `opfs-sahpool` VFS's lack of that requirement and its use of
-  exclusive sync access handles. **Gates the storage layer — the Phase 0 spike
-  exists to confirm this empirically.**
-- Web Locks API; `navigator.storage.persist()` semantics and eviction behaviour
-  of OPFS/IndexedDB under storage pressure.
-- GitHub Pages' inability to set custom response headers.
+
+Most of what was here has **moved up into the verified section above** — the
+sqlite-wasm VFSes, Web Locks, storage eviction and `persist()`, Capacitor and its
+SQLite plugin, Drizzle, Vite, and Pages' inability to set response headers. What
+remains unverified:
+
 - OpenRouter's CORS support for direct browser calls; Ollama `OLLAMA_ORIGINS`,
-  LM Studio's CORS setting, llama.cpp server `--api-cors`.
-- Capacitor, `@capacitor-community/sqlite`, Android Keystore via a secure-storage
-  plugin; Tiptap/ProseMirror; Drizzle ORM; Tesseract.js.
+  LM Studio's CORS setting, llama.cpp server `--api-cors`. **Verify before
+  Phase 2**, which is the first phase that calls a provider.
+- Android Keystore via a secure-storage plugin; Tiptap/ProseMirror; Tesseract.js.
 
 **Models and inference** (`docs/06`, `docs/12`)
 - llama.cpp's compilation of JSON-schema `response_format` into GBNF grammars;

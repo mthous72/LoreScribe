@@ -7,8 +7,16 @@
 --   * narrative position is always a scene reference, never a number
 --   * story time is INTEGER in-world minutes since project epoch
 
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
+-- No pragmas here, deliberately. They are per-connection settings, they differ
+-- between the two engines, and two of them are order-sensitive, so they belong
+-- in the driver's connection-open path and not in a migration that both engines
+-- replay. See docs/15-phase-0-plan.md §3a. In short:
+--   * foreign_keys is per-connection and must be set on EVERY open, not once.
+--   * journal_mode diverges: Capacitor/Android is WAL2 by default with no
+--     action, while sahpool needs locking_mode=exclusive set immediately after
+--     open, before anything else, and gains little for it.
+--   * journal_mode RETURNS the resulting mode rather than failing, so the driver
+--     reads it back and asserts instead of assuming the pragma took.
 
 -- ============================================================ 1. STRUCTURE
 
