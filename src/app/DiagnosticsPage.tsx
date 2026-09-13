@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { runSpike, type SpikeResult } from '../spike/measure';
 import { DEFAULT_SPEC } from '../spike/corpus';
+import { BackgroundTestPanel } from './BackgroundTestPanel';
 
 /**
  * Gate A's harness, shipped rather than thrown away. On a phone this is the only
@@ -15,6 +16,12 @@ export function DiagnosticsPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <h1 className="text-xl font-semibold">Storage diagnostics</h1>
+
+      {/* R2b first: it is the open question, and it is the one that needs a
+          real device rather than a test runner. docs/15 §1. */}
+      <BackgroundTestPanel />
+
+      <h2 className="mt-12 text-base font-semibold">Performance spike</h2>
       <p className="mt-2 text-sm opacity-70">
         Builds a {(DEFAULT_SPEC.scenes * DEFAULT_SPEC.wordsPerScene).toLocaleString()}-word
         synthetic project from seed {DEFAULT_SPEC.seed} in a scratch database, measures it,

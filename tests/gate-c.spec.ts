@@ -48,3 +48,24 @@ test('C1 — the shell works at phone width (D15: the phone is a peer, not a vie
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow2, 'diagnostics page scrolls horizontally at 390px').toBeLessThanOrEqual(0);
 });
+
+test('R2b harness — holds one connection and probes it, on a phone-sized screen', async ({ page }) => {
+  // Cannot reproduce Android's memory-pressure reclamation here; what this
+  // proves is that the harness itself works, so the person running it on a real
+  // device is testing the storage engine rather than debugging the test.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./#/diagnostics');
+
+  await expect(page.getByRole('heading', { name: 'Backgrounding test (R2b)' })).toBeVisible();
+  await page.getByRole('button', { name: 'Start the test' }).click();
+  await expect(page.getByText('Connection open — now leave this tab.')).toBeVisible();
+
+  // Probe the HELD connection — the whole point is that this is not a reopen.
+  await page.getByRole('button', { name: 'Check now' }).click();
+  await expect(page.getByText('survived', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/read ok, write ok/)).toBeVisible();
+
+  const overflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, 'diagnostics page scrolls horizontally at 390px').toBeLessThanOrEqual(0);
+});

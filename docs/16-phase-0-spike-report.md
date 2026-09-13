@@ -208,7 +208,17 @@ gates again under the real prefix rather than by inspecting the build output.
 - **Environments 2 and 3.** Gate A is not closed until the Pages origin and a
   real Android device are measured. The Pages workflow deploys on push to `main`
   or on manual dispatch, so environment 2 is one action away; environment 3 needs
-  a person holding a phone. Environment 3 also carries **R2b**, the one
+  a person holding a phone.
+
+  **The R2b harness had to be built, not just described.** The obvious
+  instruction — run the spike, background the tab, run it again — cannot answer
+  the question, because the second run opens a *fresh* connection and fresh
+  handles succeed whether or not the original ones survived. The test on
+  `/#/diagnostics` instead holds **one** connection across the interruption,
+  listens for `visibilitychange` so it probes automatically on return, and
+  exercises both a read and a write, since either can fail alone. Probes carry a
+  ten-second timeout: a terminated worker never replies, so a bare await would
+  hang and look like a slow query rather than a dead one. Environment 3 also carries **R2b**, the one
   risk this report cannot touch: whether the exclusive sync access handles
   survive ten minutes of the tab being backgrounded by a call or an app switch.
   If they don't, Capacitor moves forward into Phase 0.
