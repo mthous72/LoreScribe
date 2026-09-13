@@ -79,6 +79,26 @@ export interface Relationship {
   notes: string | null;
 }
 
+/** A scene an entity appears in — the backlink. */
+export interface SceneMention {
+  sceneId: string;
+  sceneTitle: string | null;
+  chapterTitle: string | null;
+  globalRank: string;
+  role: string;
+  aliasUsed: string | null;
+}
+
+/** An entity appearing in a scene — the same rows read the other way. */
+export interface EntityMention {
+  entityId: string;
+  name: string;
+  typeKey: string;
+  summary: string | null;
+  role: string;
+  aliasUsed: string | null;
+}
+
 export interface EntityDetail {
   entity: Entity;
   aliases: Alias[];
@@ -191,6 +211,57 @@ export class CodexRepository {
         otherName: (outgoing ? r[9] : r[8]) as string,
       };
     });
+  }
+
+  /**
+   * Where this entity appears, in reading order.
+   *
+   * The backlink half of the lore graph, and the reason `mention` is a table
+   * rather than a highlight computed in the editor: a decoration can tell the
+   * writer that "Ilva" is on the screen in front of them, but only a row can
+   * answer "which scenes is she in, and which is the last one before chapter
+   * twelve".
+   *
+   * Reads `global_rank` for the order, so a scene moved in the tree moves here
+   * too without this query knowing anything about it.
+   */
+  async scenesMentioning(entityId: string): Promise<SceneMention[]> {
+    const rows = await this.#all(
+      `SELECT s.id, s.title, c.title, s.global_rank, m.role, m.alias_used
+       FROM mention m
+       JOIN scene s   ON s.id = m.scene_id
+       JOIN chapter c ON c.id = s.chapter_id
+       WHERE m.entity_id = ? AND s.deleted_at IS NULL
+       ORDER BY s.global_rank`, [entityId]);
+    return rows.map((r) => ({
+      sceneId: r[0] as string, sceneTitle: r[1] as string | null,
+      chapterTitle: r[2] as string | null, globalRank: r[3] as string,
+      role: r[4] as string, aliasUsed: r[5] as string | null,
+    }));
+  }
+
+  /**
+   * Who and what is in this scene, most important first.
+   *
+   * `pov` before `focus` before `present` before `mentioned` — the same order
+   * the scene brief compiler will seed from, expressed once in SQL rather than
+   * re-sorted by each caller.
+   */
+  async entitiesInScene(sceneId: string): Promise<EntityMention[]> {
+    const rows = await this.#all(
+      `SELECT e.id, e.name, e.type_key, e.summary, m.role, m.alias_used
+       FROM mention m
+       JOIN entity e ON e.id = m.entity_id
+       WHERE m.scene_id = ? AND e.deleted_at IS NULL
+       ORDER BY CASE m.role
+                  WHEN 'pov' THEN 0 WHEN 'focus' THEN 1
+                  WHEN 'present' THEN 2 ELSE 3 END,
+                e.name COLLATE NOCASE`, [sceneId]);
+    return rows.map((r) => ({
+      entityId: r[0] as string, name: r[1] as string, typeKey: r[2] as string,
+      summary: r[3] as string | null, role: r[4] as string,
+      aliasUsed: r[5] as string | null,
+    }));
   }
 
   /* ---------------------------------------------------------------- entities */

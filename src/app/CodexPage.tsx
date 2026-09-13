@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useDb } from './DbProvider';
 import { rebuildKind } from '../index/rebuild';
 import type {
-  Entity, EntityType, EntityDetail, AttributeField,
+  Entity, EntityType, EntityDetail, AttributeField, SceneMention,
 } from '../data/codexRepository';
 
 /**
@@ -32,7 +32,16 @@ export function CodexPage() {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [search, setSearch] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
+  // In the URL so the cast panel in a scene can link straight to an entry.
+  const [params, setParams] = useSearchParams();
+  const openId = params.get('entity');
+  const setOpenId = useCallback((id: string | null) => {
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      if (id) next.set('entity', id); else next.delete('entity');
+      return next;
+    }, { replace: true });
+  }, [setParams]);
   const [detail, setDetail] = useState<EntityDetail | null>(null);
   const [rescanning, setRescanning] = useState(false);
   const [generation, setGeneration] = useState(0);
@@ -72,8 +81,15 @@ export function CodexPage() {
     if (db.state !== 'ready') return;
     setRescanning(true);
     try { await rebuildKind(db.driver, projectId, 'mention'); }
-    finally { setRescanning(false); }
-  }, [db, projectId]);
+    finally {
+      setRescanning(false);
+      // Re-read when the scan finishes, not only when it starts. The rebuild
+      // walks the book one scene at a time, so anything read before it
+      // returned shows a partial answer — the backlink list came back with
+      // one scene of two and looked like a correct result.
+      reload();
+    }
+  }, [db, projectId, reload]);
 
   if (db.state !== 'ready') return null;
   const open = detail && detail.entity.id === openId ? detail : null;
@@ -136,6 +152,7 @@ export function CodexPage() {
                 types={types}
                 projectId={projectId}
                 others={entities.filter((o) => o.id !== e.id)}
+                projectHref={`/project/${projectId}`}
                 busy={rescanning}
                 onChanged={reload}
                 onAliasesChanged={async () => { reload(); await rescan(); }}
@@ -195,11 +212,14 @@ function NewEntity(
   );
 }
 
-function EntityEditor({ detail, type, types, projectId, others, busy, onChanged, onAliasesChanged }: {
+function EntityEditor({
+  detail, type, types, projectId, others, busy, onChanged, onAliasesChanged, projectHref,
+}: {
   detail: EntityDetail;
   type: EntityType | null;
   types: EntityType[];
   projectId: string;
+  projectHref: string;
   others: Entity[];
   busy: boolean;
   onChanged: () => void;
@@ -208,7 +228,19 @@ function EntityEditor({ detail, type, types, projectId, others, busy, onChanged,
   const db = useDb();
   const { entity, aliases, relationships } = detail;
   const [newAlias, setNewAlias] = useState('');
+  const [appearances, setAppearances] = useState<SceneMention[]>([]);
   const fields = useMemo<AttributeField[]>(() => type?.attributes ?? [], [type]);
+
+  useEffect(() => {
+    if (db.state !== 'ready') return;
+    let cancelled = false;
+    void (async () => {
+      const rows = await db.codex.scenesMentioning(entity.id);
+      if (!cancelled) setAppearances(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [db, entity.id, aliases]);
+
   if (db.state !== 'ready') return null;
 
   const patch = async (p: Parameters<typeof db.codex.updateEntity>[1]) => {
@@ -370,6 +402,33 @@ function EntityEditor({ detail, type, types, projectId, others, busy, onChanged,
             }}
           />
         </>
+      )}
+
+      {/* ---------------------------------------------------------- backlinks */}
+      <h3 className="mt-5 text-xs font-semibold uppercase tracking-wide opacity-50">
+        Appears in
+      </h3>
+      {appearances.length === 0 ? (
+        <p className="mt-1 text-xs opacity-60">
+          Not found in any scene yet — either it has not been written about, or
+          none of the names above match the words on the page.
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-1 text-sm">
+          {appearances.map((a) => (
+            <li key={a.sceneId} className="flex items-baseline gap-2">
+              <Link
+                to={`${projectHref}?scene=${a.sceneId}`}
+                className="min-w-0 flex-1 truncate underline">
+                {a.chapterTitle ?? 'Chapter'} · {a.sceneTitle ?? 'Untitled scene'}
+              </Link>
+              <span className="shrink-0 text-xs opacity-50">{a.role}</span>
+              {a.aliasUsed && a.aliasUsed !== entity.name && (
+                <span className="shrink-0 text-xs opacity-40">as &ldquo;{a.aliasUsed}&rdquo;</span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* ----------------------------------------------------- the hard floor */}

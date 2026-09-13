@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useDb } from './DbProvider';
 import { useReorder, type DropTarget } from '../ui/useReorder';
 import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
+import { SceneCast } from './SceneCast';
 
 /**
  * The manuscript tree.
@@ -32,7 +33,18 @@ export function ManuscriptPage() {
   const [bookId, setBookId] = useState<string | null>(null);
   const [bookTitle, setBookTitle] = useState('');
   const [outline, setOutline] = useState<OutlineGroup[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  // The open scene lives in the URL, not in component state: a backlink from
+  // the codex has to be able to name one, and a reload should come back to the
+  // scene the writer was in rather than to the top of the book.
+  const [params, setParams] = useSearchParams();
+  const selected = params.get('scene');
+  const setSelected = useCallback((id: string | null) => {
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      if (id) next.set('scene', id); else next.delete('scene');
+      return next;
+    }, { replace: true });
+  }, [setParams]);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>('loading');
   const [announcement, setAnnouncement] = useState('');
@@ -271,7 +283,12 @@ export function ManuscriptPage() {
       </button>
 
       {openScene
-        ? <SceneEditor projectId={projectId} scene={openScene} />
+        ? (
+          <>
+            <SceneEditor projectId={projectId} scene={openScene} />
+            <SceneCast projectId={projectId} sceneId={openScene.id} />
+          </>
+        )
         : (
           <p className="mt-8 text-sm opacity-60">
             Choose a scene above to write in it.

@@ -196,6 +196,72 @@ describe('relationships', () => {
   });
 });
 
+describe('backlinks', () => {
+  /** Two chapters, one scene each, both naming Ilva. */
+  async function twoScenes() {
+    const book = await manuscript.createBook(PROJECT, 'One');
+    const c1 = await manuscript.createChapter(book.id, 'First');
+    const c2 = await manuscript.createChapter(book.id, 'Second');
+    const s1 = await manuscript.createScene(c1.id, 'Arrival');
+    const s2 = await manuscript.createScene(c2.id, 'Departure');
+    await manuscript.saveSceneContent(s2.id, { contentText: 'Ilva left. Ilva did not return.' });
+    await manuscript.saveSceneContent(s1.id, { contentText: 'Ilva waited. Ilva slept.' });
+    return { s1, s2, c1, c2 };
+  }
+
+  it('lists the scenes an entity appears in, in reading order', async () => {
+    const { s1, s2 } = await twoScenes();
+    const ilva = await codex.createEntity(PROJECT, { name: 'Ilva' });
+    await rebuildKind(driver, PROJECT, 'mention');
+
+    const where = await codex.scenesMentioning(ilva.id);
+    // Reading order, not insertion order — the second scene's prose was saved
+    // first, and it still comes second.
+    expect(where.map((w) => w.sceneId)).toEqual([s1.id, s2.id]);
+    expect(where[0]).toMatchObject({ sceneTitle: 'Arrival', chapterTitle: 'First', role: 'present' });
+  });
+
+  it('follows a scene moved in the tree, because it reads global_rank', async () => {
+    const { s1, s2, c1 } = await twoScenes();
+    const ilva = await codex.createEntity(PROJECT, { name: 'Ilva' });
+    await rebuildKind(driver, PROJECT, 'mention');
+
+    await manuscript.moveScene(s2.id, { chapterId: c1.id, beforeId: s1.id });
+    expect((await codex.scenesMentioning(ilva.id)).map((w) => w.sceneId)).toEqual([s2.id, s1.id]);
+  });
+
+  it('omits a deleted scene', async () => {
+    const { s1, s2 } = await twoScenes();
+    const ilva = await codex.createEntity(PROJECT, { name: 'Ilva' });
+    await rebuildKind(driver, PROJECT, 'mention');
+    await manuscript.removeScene(s2.id);
+    expect((await codex.scenesMentioning(ilva.id)).map((w) => w.sceneId)).toEqual([s1.id]);
+  });
+
+  it('reads the same rows the other way, most important role first', async () => {
+    const { s1 } = await twoScenes();
+    const ilva = await codex.createEntity(PROJECT, { name: 'Ilva' });
+    await codex.createEntity(PROJECT, { name: 'hall', typeKey: 'location' });
+    await manuscript.saveSceneContent(s1.id, { contentText: 'Ilva waited in the hall. Ilva slept.' });
+    // POV is authored on the scene; mention.role = 'pov' is derived from it.
+    await driver.query('UPDATE scene SET pov_entity_id = ? WHERE id = ?', [ilva.id, s1.id], 'run');
+    await rebuildKind(driver, PROJECT, 'mention');
+
+    const cast = await codex.entitiesInScene(s1.id);
+    expect(cast.map((c) => [c.name, c.role]))
+      .toEqual([['Ilva', 'pov'], ['hall', 'mentioned']]);
+  });
+
+  it('omits a deleted entity from a scene’s cast', async () => {
+    const { s1 } = await twoScenes();
+    const ilva = await codex.createEntity(PROJECT, { name: 'Ilva' });
+    await rebuildKind(driver, PROJECT, 'mention');
+    expect(await codex.entitiesInScene(s1.id)).toHaveLength(1);
+    await codex.removeEntity(ilva.id);
+    expect(await codex.entitiesInScene(s1.id)).toEqual([]);
+  });
+});
+
 describe('deleting an entity', () => {
   it('takes its mentions and aliases, but leaves a tombstone', async () => {
     await sceneSaying('Ilva waited. Ilva left.');
