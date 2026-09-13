@@ -12,7 +12,21 @@ which is the core of the system. The draft database schema is
 
 **Shape of the thing:** React + TypeScript + Capacitor (one codebase → PWA and
 Android APK), local-first SQLite, the writer's own API key called directly
-(OpenRouter first, OpenAI-compatible local endpoints next). Status: planning.
+(OpenRouter first, OpenAI-compatible local endpoints next).
+
+**Status: Phase 0.** The storage bet holds — `opfs-sahpool` over OPFS runs on a
+static origin with no COOP/COEP headers, at 150,000 words, with every threshold
+met. Measurements and what they overturned are in
+[doc 16](docs/16-phase-0-spike-report.md). What remains before Phase 0 closes is
+the deployed Pages origin and a real Android device, which is also the only way
+to answer whether the VFS survives a backgrounded tab.
+
+```
+npm install
+npm run dev        # then open /#/diagnostics to run the storage spike yourself
+npm run check      # typecheck, lint, dependency licences
+npm test           # the gates
+```
 
 LoreScribe is the successor to [LibriScribe](https://github.com/mthous72/libriscribe)
 — see the [review](docs/09-libriscribe-review.md) of what carries over and the
