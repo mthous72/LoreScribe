@@ -98,8 +98,19 @@ arithmetic sits beside the expectation where a reviewer can check it.)
 ## Phase 1 — The graph, with no AI at all *(~3 weeks)*
 - Codex CRUD for all entity types, aliases, relationships.
 - Manuscript tree (book/part/chapter/scene) with drag reorder and LexoRank.
+  *(Built — `src/data/manuscriptRepository.ts` and `src/app/ManuscriptPage.tsx`.
+  A reorder writes one row; `global_rank` and `scene_fts` move in the same
+  transaction. Pointer events with a keyboard path, not HTML5 drag-and-drop,
+  which never fires on touch — [D22](10-decisions.md).)*
 - Tiptap editor, autosave, word counts, scene versions and diff.
+  *(Editor, autosave and word counts built — `src/editor/SceneEditor.tsx`.
+  Scene versions and diff are not. Every path out of the autosave debounce is
+  closed and tested: hidden tab, scene switch, and a takeover in another tab,
+  which now waits for the save rather than racing it.)*
 - Alias-matching mention detection; backlinks; entity hover cards; `@` insert.
+  *(Detection and live highlighting run against real prose in the editor.
+  Backlinks, hover cards and `@` insert are not built, and there is no codex UI
+  yet to create the entities they would link to.)*
 - Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.
 - FTS search across everything.
 - **`.libriscribe.json` importer** — entities, chapters, scenes, arcs, milestones,

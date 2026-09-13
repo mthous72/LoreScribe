@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useDb } from './DbProvider';
 import type { Project } from '../data/projectRepository';
 import { BackupPanel } from './BackupPanel';
@@ -58,7 +59,9 @@ export function ProjectsPage() {
       <ul className="mt-6 divide-y divide-current/10">
         {projects.map((p) => (
           <li key={p.id} className="flex items-center gap-3 py-3">
-            <span className="min-w-0 flex-1 truncate text-sm">{p.title}</span>
+            <Link to={`/project/${p.id}`} className="min-w-0 flex-1 truncate text-sm underline">
+              {p.title}
+            </Link>
             <span className="shrink-0 text-xs opacity-50">rev {p.rev}</span>
             <button
               onClick={async () => { await db.projects.remove(p.id); refresh(); }}

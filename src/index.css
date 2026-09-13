@@ -12,3 +12,17 @@
 }
 .ProseMirror { outline: none; }
 .ProseMirror p { margin: 0 0 0.75em; }
+
+/* The writing surface. A measure of roughly 70 characters, because a line of
+   prose that runs the full width of a desktop window is tiring to read and the
+   writer is the first reader. */
+.prose-editor { max-width: 34rem; line-height: 1.7; }
+.prose-editor h1 { font-size: 1.3rem; font-weight: 600; margin: 1.2em 0 0.5em; }
+.prose-editor h2 { font-size: 1.1rem; font-weight: 600; margin: 1.2em 0 0.5em; }
+.prose-editor blockquote {
+  margin: 0 0 0.75em; padding-left: 1em;
+  border-left: 2px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+.prose-editor ul, .prose-editor ol { margin: 0 0 0.75em; padding-left: 1.4em; }
+.prose-editor ul { list-style: disc; }
+.prose-editor ol { list-style: decimal; }
