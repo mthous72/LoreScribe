@@ -69,16 +69,21 @@ is taken from novelWriter (GPL-3) under any circumstances. Run
 Doing this before the AI work skips months of rediscovery, and five of the eight
 need no model at all, which makes Phase 1 more useful standalone.
 
-| Build | Spec | Needs a model? |
-|---|---|---|
-| Repetition guard (ban list, render, violation check, revision report) | [§1](12-algorithms.md) | no |
-| Prose sanitiser, incl. the streaming think-block state machine | [§2](12-algorithms.md) | no |
-| Word counter | [§6](12-algorithms.md) | no |
-| Readability & pacing statistics | [§7](12-algorithms.md) | no |
-| Structural gap finder | [§8](12-algorithms.md) | no |
-| Evidence verification | [§3](12-algorithms.md) | at call time |
-| Structured-output schema builders + strict detection | [§5](12-algorithms.md) | at call time |
-| Reasoning-allowance tracking | [§4](12-algorithms.md) | at call time |
+| Build | Spec | Needs a model? | State |
+|---|---|---|---|
+| Repetition guard (ban list, render, violation check, revision report) | [§1](12-algorithms.md) | no | **done** |
+| Prose sanitiser, incl. the streaming think-block state machine | [§2](12-algorithms.md) | no | **done** |
+| Word counter | [§6](12-algorithms.md) | no | **done** |
+| Readability & pacing statistics | [§7](12-algorithms.md) | no | **done** |
+| Structural gap finder | [§8](12-algorithms.md) | no | **done** |
+| Evidence verification | [§3](12-algorithms.md) | at call time | Phase 2 |
+| Structured-output schema builders + strict detection | [§5](12-algorithms.md) | at call time | Phase 2 |
+| Reasoning-allowance tracking | [§4](12-algorithms.md) | at call time | Phase 2 |
+
+All five model-free algorithms are written fresh against the spec rather than
+ported — the overlap tool reports no derived lines — with a shared
+`difflib.SequenceMatcher` ratio underneath the two that need it, pinned to
+CPython's numbers because both thresholds were calibrated against them.
 
 Tests are written **from the specification** — including the properties the spec
 calls out explicitly: the sanitiser is
