@@ -20,6 +20,7 @@ CREATE TABLE project (
   genre         TEXT,
   audience      TEXT,                -- e.g. adult / YA
   content_rating TEXT,               -- author's declared ceiling; see laws
+  prose_register INTEGER,            -- 1..5 register dial; NULL = off (docs/04)
   calendar_id   TEXT REFERENCES calendar(id),
   story_epoch   INTEGER DEFAULT 0,   -- in-world minute 0
   settings_json TEXT,                -- model roles, budgets, ui prefs
@@ -179,6 +180,12 @@ CREATE TABLE fact (
   is_dramatic_irony INTEGER DEFAULT 0, -- reader knows before characters do
   source        TEXT DEFAULT 'manual', -- manual|extracted|ai_suggested
   confirmed     INTEGER NOT NULL DEFAULT 1,
+  -- Evidence discipline (libriscribe milestone_verifier): an extracted fact must cite a
+  -- span that is verifiably present in the prose. Unverified evidence downgrades, it
+  -- does not silently pass. See docs/09.
+  evidence_quote TEXT,
+  evidence_scene_id TEXT REFERENCES scene(id),
+  evidence_verified INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   deleted_at INTEGER, rev INTEGER NOT NULL DEFAULT 1
 );
@@ -297,6 +304,9 @@ CREATE TABLE law_violation (
   scene_id  TEXT REFERENCES scene(id) ON DELETE CASCADE,
   law_id    TEXT NOT NULL REFERENCES law(id) ON DELETE CASCADE,
   severity  TEXT, quote TEXT, start_offset INTEGER, end_offset INTEGER,
+  -- A rubric-model violation citing a quote that is not actually in the prose is
+  -- downgraded to 'uncertain', never reported as a finding.
+  evidence_verified INTEGER NOT NULL DEFAULT 0,
   explanation TEXT, suggested_fix TEXT,
   resolution TEXT,                   -- pending|fixed|dismissed|law_amended
   created_at INTEGER NOT NULL
@@ -324,6 +334,12 @@ CREATE TABLE model_profile (         -- a named role the app calls
   params_json TEXT,                  -- temperature, top_p, max_tokens...
   context_window INTEGER,
   cost_in_per_mtok REAL, cost_out_per_mtok REAL,
+  -- Reasoning models spend tokens in a private think channel BEFORE answering
+  -- (~2.5k observed for a two-sentence ask). Learned worst case, added preemptively
+  -- to every request; streaming cannot retry, so it is applied up front there.
+  reasoning_allowance INTEGER NOT NULL DEFAULT 0,
+  supports_json_schema INTEGER,      -- grammar-constrained decoding available
+  supports_strict_schema INTEGER,    -- requires all-closed objects
   fallback_profile_id TEXT REFERENCES model_profile(id),
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
@@ -347,7 +363,11 @@ CREATE TABLE ai_run (
   prompt_rendered TEXT,              -- exactly what was sent
   output_text TEXT,
   tokens_in INTEGER, tokens_out INTEGER, cost_usd REAL, latency_ms INTEGER,
-  status TEXT,                       -- ok|error|cancelled|refused
+  tokens_reasoning INTEGER,          -- private think channel, billed but unseen
+  budget_escalations INTEGER DEFAULT 0,
+  sanitizer_actions TEXT,            -- JSON list of deterministic repairs applied
+  retry_of_run_id TEXT REFERENCES ai_run(id),  -- regenerate-with-violations-named
+  status TEXT,                       -- ok|error|cancelled|refused|truncated
   error_text TEXT,
   accepted INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL
@@ -358,6 +378,7 @@ CREATE TABLE embedding (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
   owner_table TEXT NOT NULL, owner_id TEXT NOT NULL,
+  source_band TEXT NOT NULL DEFAULT 'canon',  -- canon|reference; never mixed in retrieval
   chunk_index INTEGER DEFAULT 0, chunk_text TEXT,
   model TEXT NOT NULL, dims INTEGER NOT NULL, vector BLOB NOT NULL,
   created_at INTEGER NOT NULL
@@ -394,6 +415,85 @@ CREATE TABLE op_log (                -- append-only; enables future sync
   op TEXT NOT NULL,                  -- insert|update|delete
   payload TEXT, ts INTEGER NOT NULL
 );
+
+-- ================================================ 8b. THREADS (reader promises)
+
+-- Distinct from `fact`: a fact is a truth about the world, a thread is a PROMISE
+-- made to the reader. "Someone is watching the house" is a thread, not a fact.
+-- Auto-detected from prose after each scene/chapter; see docs/09 item 8.
+CREATE TABLE narrative_thread (
+  id TEXT PRIMARY KEY,
+  book_id TEXT NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  thread_type TEXT NOT NULL,         -- promise|setup|question|item
+  description TEXT,
+  opened_scene_id   TEXT REFERENCES scene(id),
+  target_resolution_chapter_id TEXT REFERENCES chapter(id),
+  resolved_scene_id TEXT REFERENCES scene(id),
+  status TEXT NOT NULL DEFAULT 'open',  -- open|resolved|abandoned
+  source TEXT DEFAULT 'extracted',   -- manual|extracted
+  confirmed INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  deleted_at INTEGER, rev INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE narrative_thread_entity (
+  thread_id TEXT NOT NULL REFERENCES narrative_thread(id) ON DELETE CASCADE,
+  entity_id TEXT NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
+  PRIMARY KEY (thread_id, entity_id)
+);
+
+-- ================================================ 8c. REFERENCE MATERIAL
+
+-- Imported source material (PDF/TXT/MD/OCR). Grounds generation, NEVER becomes
+-- canon, never enters an export, retrieved into its own reserved brief slice and
+-- excluded from canon retrieval. See docs/09 item 6.
+CREATE TABLE reference_source (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, kind TEXT,    -- pdf|txt|markdown|image_ocr|web
+  file_uri TEXT, page_count INTEGER,
+  licence_note TEXT,                 -- author's own record of usage rights
+  ocr_applied INTEGER DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  deleted_at INTEGER, rev INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE reference_chunk (
+  id TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL REFERENCES reference_source(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL, page INTEGER,
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX reference_chunk_source_idx ON reference_chunk(source_id, chunk_index);
+
+-- ================================================ 8d. PROPOSAL STAGING
+
+-- Nothing an AI extracts touches live data until the author accepts it. Grouped
+-- per run so a bad run is abandoned in one action. See docs/09 items 11-12.
+CREATE TABLE proposal_run (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+  ai_run_id TEXT REFERENCES ai_run(id),
+  seed_kind TEXT,                    -- scene_extraction|import|brainstorm|gap_fill
+  seed_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'staged',  -- staged|applied|abandoned
+  created_at INTEGER NOT NULL, applied_at INTEGER
+);
+CREATE TABLE proposal (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES proposal_run(id) ON DELETE CASCADE,
+  target_table TEXT NOT NULL,        -- entity|fact|fact_knowledge|mention|narrative_thread|beat
+  target_id TEXT,                    -- set for op='update'
+  op TEXT NOT NULL,                  -- new|update
+  payload TEXT NOT NULL,             -- JSON; merge is field-by-field, never destructive
+  rationale TEXT, confidence REAL,
+  evidence_quote TEXT,
+  evidence_verified INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending',  -- pending|accepted|rejected
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX proposal_run_idx ON proposal(run_id, status);
 
 -- ============================================================ 9. SEARCH
 
@@ -439,3 +539,10 @@ WHERE a.deleted_at IS NULL AND b.deleted_at IS NULL
   AND a.supersedes_fact_id IS NOT b.id AND b.supersedes_fact_id IS NOT a.id
   AND IFNULL(a.object_text,'') <> IFNULL(b.object_text,'')
   AND IFNULL(a.object_entity_id,'') <> IFNULL(b.object_entity_id,'');
+
+-- Reader promises still outstanding, with how long they have been open.
+CREATE VIEW v_open_threads AS
+SELECT t.*, os.global_rank AS opened_rank
+FROM narrative_thread t
+LEFT JOIN scene os ON os.id = t.opened_scene_id
+WHERE t.status = 'open' AND t.deleted_at IS NULL;

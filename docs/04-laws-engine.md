@@ -38,6 +38,15 @@ tags; British spelling; scene breaks marked `***`; no em-dash pileups; avoid the
 word "suddenly"; sensory detail in every setting change; show don't tell on
 emotion words.
 
+One `style` law ships built-in and earns its place: the **repetition guard**
+(`check_mode: heuristic`). It scans the prose written so far for overused phrases
+and words and for each recent scene's opening image, injects them as explicit named
+bans, then deterministically checks the output and regenerates once with the
+violations named. Proper nouns are excluded so character names are never banned,
+and n-grams never span sentence boundaries. Instruction-only steering ("vary your
+imagery") measurably fails on small models; named bans work. The same detector,
+reframed as a fix-this report rather than a ban, drives revision passes.
+
 **`voice`** — per character. "Kaelen never uses contractions." "Maren's
 interiority is clipped, present-tense fragments." Scoped to `entity`, injected
 only when relevant, and checkable by rubric against that character's dialogue.
@@ -68,6 +77,14 @@ text is offered for acceptance:
 - `rubric` — a cheap-model call that receives the text plus the law and returns
   structured violations with exact quoted spans.
 
+**Every rubric violation must cite evidence, and the evidence is verified.** The
+quoted span is checked by normalised substring match (smart quotes, dashes and
+whitespace folded; minimum 12 characters) against the actual prose. A violation
+whose quote is not really in the text is downgraded to *uncertain* and never
+reported as a finding. Models — small local ones especially — will confidently
+invent a quote to justify a verdict, and an unverified citation is worse than no
+finding at all because it looks authoritative.
+
 Violations are written to `law_violation` and rendered inline in the editor as
 underlined spans with the law, the reason and a suggested fix. The writer can
 **auto-revise** (a targeted revision pass constrained to fix only the flagged
@@ -95,6 +112,14 @@ politically uncomfortable, sexually explicit adult fiction — all of it is
 legitimate, and the tool's job is to enable it, not to editorialise. Villains
 should be genuinely menacing. The user-configurable `content` laws set the
 ceiling; the system floor sets the only thing below it.
+
+**The user-facing control is a register dial, not a checklist.** A 1–5 prose
+register (restrained → suggestive → frank → graphic → unrestrained) is far easier
+to set than a pile of toggles, and it maps onto scoped `content` laws underneath.
+It is off unless enabled, gated behind an explicit opt-in and age affirmation, and
+it is honestly a *generation steer only* — it changes the prompt, it does not
+filter model output. Per-topic laws remain available for writers who want a
+specific rail ("violence stays off-page") independent of overall register.
 
 Note honestly in the UI: the *provider* also has a policy. When OpenRouter or a
 given model refuses, LoreScribe reports the refusal as a provider refusal

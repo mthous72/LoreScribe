@@ -34,8 +34,10 @@ interface SceneBrief {
                 chapterSummaries: string[];     // compressed further back
                 arcState: ArcStatus[] };
   laws:       CompiledLaw[];       // scoped, ordered by severity
-  style:      { exemplars: string[]; voiceNotes: string };
-  semantic:   RetrievedChunk[];    // the supplementary vector pass
+  banList:    { phrases: string[]; words: string[]; openings: string[] };
+  style:      { exemplars: string[]; voiceNotes: string; register?: 1|2|3|4|5 };
+  semantic:   RetrievedChunk[];    // supplementary vector pass, canon band only
+  reference:  RetrievedChunk[];    // imported sources — background, NEVER canon
   budget:     { model; contextWindow; allocated: Record<Section, number>;
                 used: Record<Section, number> };
 }
@@ -86,8 +88,20 @@ included and anything the spoiler filter rejected. Take the top few. This is the
 safety net for connections the writer never linked — deliberately last, and
 deliberately small.
 
-**Step 8 — Laws.** Gather laws whose scope covers this scene, ordered `must` →
-`should` → `prefer`. Canon laws derived from step 4's facts are appended.
+**Step 8 — Laws and the ban list.** Gather laws whose scope covers this scene,
+ordered `must` → `should` → `prefer`. Canon laws derived from step 4's facts are
+appended. Then compute the **repetition ban list** deterministically from the prose
+written so far — overused phrases, overused words, and the opening sentence of each
+recent scene — and emit it as explicit named bans. Generic instruction ("vary your
+imagery") does not work; named bans do. Blocks are fenced with open/close
+delimiters and the binding restated immediately after, which measurably improves
+adherence over a bare list.
+
+**Step 8b — Reference band.** Imported source material (PDF/TXT/Markdown/OCR) is
+retrieved into its own slice, whose budget is **reserved before** canon sections so
+it cannot be crowded out, and labelled unmistakably as background rather than
+canon. Canon retrieval excludes it, and it never appears in an export. It grounds
+the writing; it never becomes part of the world.
 
 **Step 9 — Budget.** Given the target model's context window, allocate:
 
@@ -119,10 +133,44 @@ output) over the new text and proposes:
 - mentions the alias matcher missed,
 - a one-line scene summary and a tension rating.
 
-Everything lands in a **review queue** as unconfirmed rows with `source =
-'extracted'`. The writer accepts, edits or rejects — bulk accept for the obvious
-ones. Nothing unconfirmed ever enters a brief as canon. Write the book, and the
-codex grows behind you.
+- narrative threads opened or resolved (promises, setups, questions, items —
+  distinct from facts: a thread is a promise to the *reader*, a fact is a truth
+  about the *world*).
+
+Everything lands in a **proposal run** as staged candidates, never in live data.
+Three rules make this safe, and all three are non-negotiable:
+
+1. **Nothing auto-applies.** Candidates carry `op: new|update`, a rationale, a
+   confidence and an evidence quote. The writer accepts, edits or rejects; a whole
+   bad run can be abandoned in one action.
+2. **Evidence must be real.** Every claim about the prose cites a quote, checked by
+   normalised substring match against the actual text. A fabricated quote
+   *downgrades* the proposal to uncertain rather than being believed. This applies
+   everywhere an AI asserts something about the manuscript — extraction, continuity
+   findings, law violations, beat-coverage verdicts.
+3. **Merge is never destructive.** Applying an `update` fills empty fields, updates
+   explicitly revised ones, and **preserves anything the proposal didn't mention**.
+   Re-extracting a scene first clears that scene's previous proposals, so re-runs
+   converge instead of duplicating.
+
+Write the book, and the codex grows behind you — without ever overwriting something
+you wrote by hand.
+
+## The Lore Digest — the brief's sibling for structural work
+
+The Scene Brief serves prose generation. Structural generation (premise, outline,
+chapter breakdown, arc beats) needs a different, smaller package: a budgeted digest
+of established lore — characters, arcs, open threads, world, locations, codex, in
+that priority — wrapped in an instruction that makes it binding:
+
+> This story belongs to the world above. Use these characters, arcs, places and
+> facts as the foundation — extend and deepen them. Do not invent replacements for
+> them, rename them, or contradict them. Only introduce new elements where the
+> established lore has gaps.
+
+Without this, outline generation happily invents a parallel world that contradicts
+the codex, and the drift the beat/scene links were designed to prevent gets
+introduced by the planner itself.
 
 ## Reader-facing payoff
 

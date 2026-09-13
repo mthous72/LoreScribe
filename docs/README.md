@@ -12,6 +12,8 @@ Read in order:
 | [05 — Planning](05-planning-arcs-and-scenes.md) | Arcs, beats, templates, the planning views |
 | [06 — AI Pipeline](06-ai-pipeline.md) | Multi-step generation, modes, cost discipline, local models |
 | [07 — Suggestions](07-suggestions-backlog.md) | Everything else worth building, ranked |
-| [08 — Roadmap](08-roadmap.md) | Phased plan and sequencing rules |
+| [08 — Roadmap](08-roadmap.md) | Phased plan, product rules, sequencing |
+| [09 — LibriScribe review](09-libriscribe-review.md) | What to take from `mthous72/libriscribe`, what to leave, and why this is a new app rather than a refactor |
 
 **If you read one thing:** doc 03. It's the product.
+**If you read two:** doc 09 — it changes parts of 01, 03, 04, 07 and 08.

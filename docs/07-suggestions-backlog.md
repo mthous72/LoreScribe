@@ -18,10 +18,18 @@ is won or lost; the last is genuinely optional.
    dead characters on the page, timeline impossibilities, eye/hair/name drift,
    POV violations, aliases used before the reader can connect them. Run it on
    demand and as a pre-export gate.
-4. **Repetition and echo detector.** Pure computation, no AI, universally loved:
-   overused words per scene and per book, distinctive phrases repeated across
-   chapters, sentences starting the same way, character-name density, filter words
-   ("she felt", "he noticed"), crutch verbs. Cheap to build, immediately useful.
+4. **Repetition and echo detector.** Promoted out of this list into the Laws
+   Engine as a generation-time guard — see [doc 04](04-laws-engine.md). The
+   read-only report (overused words per scene and per book, repeated phrases,
+   sentences starting the same way, filter words, crutch verbs) remains as the
+   revision-pass view over the same detector.
+4b. **Deterministic gap finder.** Zero LLM calls, runs on every save: dangling
+   references (a name used in a field with no matching record), out-of-range
+   chapter references, unresolved arcs and threads, "thin" entities missing the
+   fields the compiler actually consumes, missing voice profiles. Each gap gets a
+   severity, a one-line message, evidence, and a click-to-open target. Build this
+   *before* the AI continuity checker — it's free, instant, and catches a
+   surprising share of real problems.
 5. **Setup / payoff ledger.** Unpaid Chekhov's guns, reveals landing before their
    setup, clues planted with no answer. Falls out of the fact model for free.
 6. **Snapshots and diff.** Whole-project snapshots, per-scene version diff with
@@ -31,9 +39,17 @@ is won or lost; the last is genuinely optional.
    as a single portable `.lorescribe` archive (JSON + media). Local-first means
    nothing if the data is trapped.
 8. **Import.** Plain text/Markdown/DOCX with chapter detection, and — deliberately
-   — a Scrivener `.scrivx` and NovelCrafter/Campfire importer. Meeting writers
-   where their existing 80k words already live is the difference between a trial
-   and a migration.
+   — Scrivener `.scrivx`, NovelCrafter/Campfire, **SillyTavern character cards and
+   World Info, KoboldAI World Info**, and `.libriscribe.json` bundles. Format
+   auto-detected, with an AI-mapping pass for unknown shapes, everything landing in
+   the same proposal-review panel. Meeting writers where their existing 80k words
+   already live is the difference between a trial and a migration.
+8b. **Bring-your-own reference material.** Import PDF/TXT/Markdown, and scanned
+   documents via OCR, as a non-canon source band that grounds generation, is
+   retrieved into its own reserved context slice, and is excluded from exports.
+   For historical, technical, legal or medical fiction this is load-bearing. Pairs
+   with the `ip` laws: references are for consultation, never reproduction, so the
+   regurgitation check runs specifically against them.
 
 ## B. Strong differentiators
 

@@ -58,13 +58,39 @@ transaction at startup. Consequences worth knowing up front:
 interface ProviderAdapter {
   id: string;
   listModels(): Promise<ModelInfo[]>;
-  capabilities(modelId: string): ModelCapabilities;  // ctx window, tools,
-                                                     // json schema, vision, cost
+  capabilities(modelId: string): ModelCapabilities;
   chat(req: ChatRequest, signal: AbortSignal): AsyncIterable<ChatDelta>;
   embed?(texts: string[]): Promise<Float32Array[]>;
   countTokens(text: string, modelId: string): number;
 }
+
+interface ModelCapabilities {
+  contextWindow: number;
+  supportsTools: boolean;
+  supportsJsonSchema: boolean;    // grammar-constrained decoding on llama.cpp
+  supportsStrictSchema: boolean;  // needs all-closed objects
+  costIn: number; costOut: number;
+  reasoningAllowance: number;     // learned; see below
+}
 ```
+
+**Reasoning allowance is part of the capability model, not an afterthought.**
+Reasoning models spend tokens in a private think channel *before* answering —
+measured at ~2,500 tokens for a two-sentence request. A budget sized for the
+answer gets eaten and the content comes back empty or truncated. The adapter
+records observed `reasoning_tokens` per model, keeps the worst case, adds it
+preemptively to later requests, and escalates up to twice on truncation. Streaming
+cannot retry, so the allowance is applied up front there. (Learned from
+LibriScribe — see [doc 09](09-libriscribe-review.md).)
+
+## The sanitation layer
+
+Every span of generated prose passes through a deterministic, idempotent,
+pure-function pipeline before it is stored or displayed: `<think>`/`<reasoning>`
+block stripping (with a streaming state machine, because the tags straddle chunk
+boundaries), mojibake repair, scene-label and summary-echo removal, dash and
+whitespace normalisation. No prompt achieves this reliably; scaffolding must never
+reach the reader. This is a hard requirement the moment local models are in scope.
 
 The app never calls a provider directly. It calls a **role**: `draft`, `revise`,
 `critique`, `summarise`, `extract`, `embed`, `name`. Each role maps to a
