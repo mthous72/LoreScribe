@@ -25,7 +25,12 @@ kills it. Nothing before Phase 2 should take longer than it has to.
 - Repository layer and the `op_log` write path.
 - Vitest, Playwright, CI, lint/format, and a dependency-licence allowlist check
   ([doc 13 §4](13-legal-and-compliance.md)).
-- **Done when:** a project can be created, persisted and reloaded after a refresh.
+- CI deploy to GitHub Pages (confirmed: the repo is public, so this needs no
+  account upgrade — the served app is a public URL, holding no data until someone
+  creates a project on that device; see [D14](10-decisions.md) for the boundary
+  this does *not* cross).
+- **Done when:** a project can be created, persisted and reloaded after a refresh,
+  on a real Android phone and via the deployed Pages URL.
 
 ## Phase 0b — Implement the specified algorithms *(~1 week, runs alongside Phase 1)*
 
@@ -81,6 +86,25 @@ never contains a proper noun, and staggered fragments merge into one phrase.
   If this phase isn't pleasant to use, no amount of AI will save it.
 
 ## Phase 2 — The Scene Brief Compiler *(~3 weeks)* ← the decisive phase
+- **Bible intake, first.** A real project (a story bible that predates LoreScribe
+  entirely, never run through LibriScribe) needs a way in before any brief can be
+  compiled against it. Two lanes, run over the same document set:
+  - **Template-aware structured parsing**, no model call: sections that already
+    follow a recognisable shape — a character file's Bio/Want/Need/Past/Arc
+    fields, a "who knows what" table, a physical-state note scoped to a scene —
+    map mechanically onto `entity`, `arc` and `fact`/`fact_knowledge` rows. This
+    is the cheap, deterministic path, and it exists because real bibles are often
+    already this well organised — worth checking for the shape before reaching
+    for a model.
+  - **Extraction for the rest** — freeform prose (a full-story summary, a loose
+    outline) goes through the same proposal-staging pipeline
+    [doc 05](05-planning-arcs-and-scenes.md) and [doc 03](03-story-graph-and-context.md)
+    describe for Phase 5, pulled forward here because Phase 2's brief compiler
+    needs a populated graph to compile anything against. Phase 5 later
+    generalises this into the automatic post-scene pass; this is its first,
+    manually-triggered use.
+  - Everything lands as proposals, reviewed once, same as any other extraction —
+    D14 applies: the bible itself never enters this public repository.
 - `ProviderAdapter` + OpenRouter adapter + secure credential storage.
 - Model profiles / roles.
 - The compiler, all nine steps, with the **brief inspector UI**.
@@ -93,9 +117,11 @@ never contains a proper noun, and staggered fragments merge into one phrase.
   respects facts established in chapter 2 and does not leak a chapter-40 reveal —
   and a big-dump control prompt fails at least one of those. Write that comparison
   down; it is the product thesis.
-- **Second control worth running:** the same manuscript through LibriScribe.
-  Importing a `.libriscribe.json` bundle is a few hours' work and gives a real
-  A/B against a working tool rather than against a strawman prompt.
+- **Second control, where it applies:** for a manuscript that already has a
+  LibriScribe project, importing its `.libriscribe.json` bundle and running the
+  same test there is a real A/B against a working tool rather than a strawman
+  prompt. Not every fixture will have one — the bible-intake path above exists
+  precisely for the case where it doesn't.
 
 ## Phase 3 — Laws *(~2 weeks)*
 - Law CRUD, scoping, presets, the six categories.
@@ -116,7 +142,9 @@ never contains a proper noun, and staggered fragments merge into one phrase.
 - Setup/payoff ledger; unrealised-beat and orphan-scene reports.
 
 ## Phase 5 — Closing the loop *(~2 weeks)*
-- Extraction service, proposal staging, non-destructive field-by-field merge.
+- Extraction service, proposal staging, non-destructive field-by-field merge — the
+  general form of the bible-intake pipeline built in Phase 2, now triggered
+  automatically after each scene rather than manually against a whole document.
 - Evidence verification applied across every AI assertion about the manuscript.
 - Narrative thread tracker (promises, setups, questions, items).
 - Batch continuity checker, including the `knows_too_early` check.
@@ -125,6 +153,8 @@ never contains a proper noun, and staggered fragments merge into one phrase.
 - Reference-material import (PDF/TXT/MD, OCR) as a non-canon source band.
 
 ## Phase 6 — Android *(~1 week)*
+- Target: a recent Android phone, last ~3 years (Android 12/API 31+) — the
+  primary platform, not a secondary one ([D13](10-decisions.md)).
 - Capacitor SQLite driver — the reason Capacitor exists in a project that ships to
   no store: app-private storage is not evictable ([D9](10-decisions.md)).
 - Keystore credentials; filesystem for media.

@@ -53,8 +53,11 @@ transaction at startup. Consequences worth knowing up front:
 
 ### Hosting and the cross-origin-isolation trap
 
-The app is served as a static PWA (GitHub Pages is the obvious host — the app is
-just code, the data never leaves the device). Static hosts **cannot set response
+The app is served as a static PWA on **GitHub Pages** (decided, not merely
+convenient — the repository is public, so this needs no account upgrade). The
+served page is just code; no project data reaches it until someone creates a
+project on that device, which is the boundary [D14](10-decisions.md) draws
+around what a public repo is allowed to hold. Static hosts **cannot set response
 headers**, and the SharedArrayBuffer-based OPFS VFS requires cross-origin isolation
 (`COOP: same-origin`, `COEP: require-corp`) because it uses `Atomics.wait` in a
 worker. So that VFS is unavailable.
@@ -135,6 +138,9 @@ sounds:
 **Credentials.** Android → Keystore via a secure-storage plugin. Web → key
 encrypted with a passphrase-derived key (WebCrypto, PBKDF2/Argon2) in IndexedDB,
 never `localStorage`, never in SQLite, never logged, never in `ai_run.params_json`.
+This is deliberately the *only* thing encrypted at rest — the project database
+itself is not ([D12](10-decisions.md)); a credential and a manuscript are
+different risk classes, and the device's own security covers the second.
 Requests go browser-direct to the provider; OpenRouter supports CORS for this.
 
 ## Offline behaviour
@@ -145,8 +151,15 @@ regardless — you can plan a whole chapter on a plane and let the drafts run la
 
 ## Testing
 
-- **Vitest** for the domain layer, with a fixture novel ("The Grey Warden") used
-  across tests: ~40 scenes, 20 entities, 150 facts, deliberate continuity traps.
+- **Vitest** for the domain layer, with a synthetic fixture novel ("The Grey
+  Warden") used across automated tests: ~40 scenes, 20 entities, 150 facts,
+  deliberate continuity traps. Invented, so it lives in the repo with no privacy
+  concern ([D14](10-decisions.md)).
+- **The Phase 2 decisive test** (doc 08) runs against a real manuscript instead,
+  precisely because a synthetic fixture is only as good as the traps someone
+  thought to plant. That manuscript is never committed to this repository — see
+  [D14](10-decisions.md) — and is read by the test harness from a local path or
+  environment variable kept outside version control.
 - **Golden-brief tests**: compiling a brief for a given scene must produce a
   stable, snapshot-compared package. This is the regression net for the core.
 - **Recorded-provider tests**: `ai_run` rows from real sessions replay as fixtures,

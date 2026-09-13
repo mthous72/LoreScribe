@@ -36,6 +36,14 @@ policy permits it. Concretely:
 - **Refusals are reported as refusals**, with the serving provider named
   (`ai_run.status = 'refused'`, `ai_run.served_by`). Never silently degraded, never
   retried against a different provider without saying so.
+
+  This is not hypothetical: it is already how a careful writer works around
+  provider limits by hand — draft the non-explicit skeleton on one model, hand off
+  the specific gaps that need a higher register to a provider whose policy permits
+  it (xAI's Grok is a real example), and never pretend the first model produced
+  what the second one did. `provider_policy` and the register-aware routing above
+  are that exact practice, automated and made visible rather than manual and
+  ad hoc — see the "Fill slot" mode in [doc 06](06-ai-pipeline.md).
 - **Hard rule: LoreScribe never attempts to circumvent a provider's safeguards.**
   No jailbreak framing, no "for a novel, so ignore your guidelines," no automated
   rephrasing to slip past a refusal. That is a terms violation on its own, and it

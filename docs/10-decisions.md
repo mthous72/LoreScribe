@@ -160,3 +160,58 @@ mitigated instead:
 - **scheduled automatic backup export is not optional** — with no server and no
   sync, an evicted OPFS database with no recent export is total loss. This moves
   from backlog item C26 into Phase 1.
+
+### D12 — No at-rest database encryption; device security is the boundary
+The project database is not encrypted beyond the OS's own protections (device
+passcode, FileVault/BitLocker/Android's disk encryption). The API key stays
+encrypted regardless ([D2](10-decisions.md), doc 01) — that's a credential, a
+different risk class from the manuscript.
+
+The alternative was a passphrase-gated database, unlocked each session. Rejected:
+meaningful extra engineering (key derivation, an unlock screen, a recovery story
+for a forgotten passphrase with no server to reset it against), a friction cost
+paid on every single app open, for a personal tool on the writer's own devices
+where the OS already provides this. Revisit if the device-trust assumption ever
+changes — a shared or borrowed device, for instance.
+
+### D13 — Android is the primary target; desktop/web is secondary and best-effort
+Testing and polish priority go to a recent Android phone (the last ~3 years —
+Android 12/API 31 and up). Desktop browser support is assumed Chromium-family
+(Chrome/Edge) as the safer bet for the `opfs-sahpool` VFS, but is not the daily
+driver being designed for and gets tested opportunistically rather than as a
+release gate.
+
+This narrows the Phase 0 spike's required scope: confirming SAHPool and the
+multi-tab lock on Chromium is the bar, not a cross-browser matrix. If Safari or
+another engine turns out to matter later, that reopens this decision and possibly
+[D8](10-decisions.md), not the other way around.
+
+### D14 — The public repo never contains manuscript or story-bible content
+LoreScribe's repository is public ([confirmed 2026-09-13](08-roadmap.md)), which
+was fine for a design plan and a schema but is a real hazard for the thing the
+software actually manages: a writer's unpublished manuscript, which may be
+sensitive, explicit, or simply not the writer's to publish yet. Nothing about D7
+("personal, not published") extended to the *content* — only to the software not
+having a store listing, marketing, or a support burden. The two are easy to
+conflate and must not be.
+
+**Rule:** no manuscript, story-bible, or fixture content derived from a real book —
+the writer's own or anyone else's — is ever committed to this repository, in any
+branch, at any point in its history. This is stricter than "delete it later,"
+because a public repo's history is not truly private once pushed, even after a
+force-push or a deletion commit — assume anything pushed is permanently public.
+
+**What this means in practice:**
+- Real fixture material (a real manuscript used for the Phase 2 decisive test,
+  per [doc 08](08-roadmap.md)) lives outside the repository entirely — a local
+  directory, referenced by an environment variable or a path the test harness
+  reads at run time, never checked in. `.gitignore` is a backstop, not the
+  control; the control is that it's never `git add`ed in the first place.
+- The synthetic fixture ("The Grey Warden," doc 01) is unaffected — it's invented
+  for testing and has no privacy exposure, so it stays in the repo as normal.
+- Screenshots, example data, or docs illustrating a feature use invented content,
+  never a real project's.
+- If this project ever needs a private companion repo for real working data
+  (fixtures, personal backups, drafts), that's a separate, private repository —
+  never a private branch or a "we'll clean it up before merging" branch of this
+  one.
