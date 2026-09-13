@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-pages/
+test-results/
+playwright-report/
+*.local
+
+# D14 backstop. The control is that real manuscript or story-bible material is
+# never `git add`ed in the first place; this is only a second line of defence.
+/fixtures-real/
+*.lorescribe
+spike-results/

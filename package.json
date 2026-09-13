@@ -1,0 +1,25 @@
+{
+  "name": "lorescribe",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "spike": "playwright test",
+    "spike:report": "node tools/render-spike-report.mjs"
+  },
+  "dependencies": {
+    "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^22.20.2",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  }
+}
