@@ -16,7 +16,8 @@ plan's assumptions were wrong and are corrected below.
 | # | Environment | Status |
 |---|---|---|
 | 1 | Local Chromium 153, production build served by `vite preview` | **done — this report** |
-| 2 | Deployed Pages origin, desktop Chrome | pending Gate D (CI deploy) |
+| 1b | CI (`ubuntu-latest`, Playwright Chromium), plain and under the `/LoreScribe/` prefix | **done — green, every step** |
+| 2 | Deployed Pages origin, desktop Chrome | pending — needs a merge to `main` or a manual dispatch |
 | 3 | Deployed Pages origin, Android Chrome on a real device | pending — needs the phone ([D16](10-decisions.md)) |
 
 Environment 1 is a headless Chromium in a Linux container. It is a real browser
@@ -205,7 +206,9 @@ gates again under the real prefix rather than by inspecting the build output.
 ## Open items
 
 - **Environments 2 and 3.** Gate A is not closed until the Pages origin and a
-  real Android device are measured. Environment 3 also carries **R2b**, the one
+  real Android device are measured. The Pages workflow deploys on push to `main`
+  or on manual dispatch, so environment 2 is one action away; environment 3 needs
+  a person holding a phone. Environment 3 also carries **R2b**, the one
   risk this report cannot touch: whether the exclusive sync access handles
   survive ten minutes of the tab being backgrounded by a call or an app switch.
   If they don't, Capacitor moves forward into Phase 0.
