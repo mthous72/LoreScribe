@@ -22,7 +22,6 @@ test('A1-A4, A6, A9 — the measurement run', async ({ page }) => {
   mkdirSync('spike-results', { recursive: true });
   writeFileSync('spike-results/local-chromium.json', JSON.stringify(result, null, 2));
 
-   
   console.log('\n' + result.measurements.map((m) =>
     `${m.pass === null ? ' · ' : m.pass ? ' ✓ ' : ' ✗ '}${m.label}\n     ${m.value} ${m.unit}   (target ${m.target})${m.detail ? '\n     ' + m.detail : ''}`,
   ).join('\n'));
@@ -44,7 +43,7 @@ test('A5 — a second tab is refused, and what the cached failure actually scope
   await gotoApp(tabB);
   const blocked = await tabB.evaluate(() => window.openOnly('lorescribe-multitab'));
   expect(blocked).toMatchObject({ ok: false, reason: 'held-by-another-tab' });
-   
+
   console.log('   second tab refused with:', JSON.stringify(blocked));
 
   // Release the holder WITHOUT closing the page, so we are testing the VFS and
@@ -58,8 +57,8 @@ test('A5 — a second tab is refused, and what the cached failure actually scope
   // this test exists rather than a note in a design document.
   const retry = await tabB.evaluate(() => window.openOnly('lorescribe-multitab'));
   expect(retry).toMatchObject({ ok: true });
-   
-  console.log('   retry in a fresh worker, same page:', JSON.stringify({ ok: (retry as {ok: boolean}).ok }));
+
+  console.log('   retry in a fresh worker, same page:', JSON.stringify({ ok: (retry as { ok: boolean }).ok }));
 });
 
 test('A5b — pauseVfs/unpauseVfs gives a real cooperative handoff', async ({ context }) => {
@@ -119,7 +118,7 @@ test('A7 — data survives an abrupt kill mid-write', async ({ browser }) => {
   // The 200 committed writes must all be there, and the file must not be corrupt.
   expect(survived).toMatchObject({ ok: true, integrity: 'ok' });
   expect((survived as { count: number }).count).toBeGreaterThanOrEqual(200);
-   
+
   console.log('   after abrupt kill:', JSON.stringify(survived));
 
   await ctx.close();

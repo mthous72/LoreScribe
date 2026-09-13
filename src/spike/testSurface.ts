@@ -100,7 +100,6 @@ window.holdOpen = async (vfsName) => {
   return { ok: true, diagnostics };
 };
 
-
 window.runConformance = async (vfsName) => {
   const { driver } = await WorkerSqlDriver.open({
     path: '/lorescribe-conformance.db', vfsName, minimumCapacity: 8, clearOnInit: true,
@@ -148,7 +147,7 @@ window.reopenUnderJournalMode = async (vfsName, mode) => {
     await b.driver.close();
     b.driver.terminate();
     return { ok: true, steps, reopened: String((rows as unknown[])[0]),
-             journalOnReopen: d2.journalMode, poolFiles: `${d2.fileCount}/${d2.capacity}` };
+      journalOnReopen: d2.journalMode, poolFiles: `${d2.fileCount}/${d2.capacity}` };
   } catch (e) {
     const err = e as SqlOpenError;
     return { ok: false, steps, reason: err.reason, message: err.message };

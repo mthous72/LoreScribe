@@ -19,7 +19,9 @@ const BOOK = 'b1';
 
 let driver: NodeSqlDriver;
 
-async function seed(): Promise<{ sceneIds: string[]; chapterKeys: string[]; sceneKeys: string[]; bookKey: string }> {
+async function seed(): Promise<{
+  sceneIds: string[]; chapterKeys: string[]; sceneKeys: string[]; bookKey: string;
+}> {
   const bookKey = firstKey();
   const chapterKeys = initialKeys(2);
   const sceneKeys = initialKeys(2);
@@ -37,10 +39,10 @@ async function seed(): Promise<{ sceneIds: string[]; chapterKeys: string[]; scen
     // Deliberately WRONG ranks: this is what a rebuild is supposed to correct.
     { sql: `INSERT INTO scene (id,chapter_id,title,sort_key,global_rank,pov_entity_id,content_text,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?)`,
-      params: ['s1', 'c1', 'Arrival', sceneKeys[0], 'wrong-1', 'e1', 'Ilva came to The Long Hall. Ilva waited.', NOW, NOW] },
+    params: ['s1', 'c1', 'Arrival', sceneKeys[0], 'wrong-1', 'e1', 'Ilva came to The Long Hall. Ilva waited.', NOW, NOW] },
     { sql: `INSERT INTO scene (id,chapter_id,title,sort_key,global_rank,content_text,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?)`,
-      params: ['s2', 'c2', 'Departure', sceneKeys[1], 'wrong-2', 'The Long Hall emptied.', NOW, NOW] },
+    params: ['s2', 'c2', 'Departure', sceneKeys[1], 'wrong-2', 'The Long Hall emptied.', NOW, NOW] },
     { sql: 'INSERT INTO note (id,project_id,title,body,created_at,updated_at) VALUES (?,?,?,?,?,?)', params: ['n1', PROJECT, 'Check', 'Does the council meet at dawn?', NOW, NOW] },
   ], true);
 
@@ -76,8 +78,10 @@ describe('rank', () => {
 
     await rebuildKind(driver, PROJECT, 'rank');
     const ranks = await all('SELECT id, global_rank FROM scene ORDER BY id');
-    expect(ranks[0]![1]).toBe(sceneGlobalRank({ bookKey, chapterKey: chapterKeys[0]!, sceneKey: sceneKeys[0]! }));
-    expect(ranks[1]![1]).toBe(sceneGlobalRank({ bookKey, chapterKey: chapterKeys[1]!, sceneKey: sceneKeys[1]! }));
+    expect(ranks[0]![1])
+      .toBe(sceneGlobalRank({ bookKey, chapterKey: chapterKeys[0]!, sceneKey: sceneKeys[0]! }));
+    expect(ranks[1]![1])
+      .toBe(sceneGlobalRank({ bookKey, chapterKey: chapterKeys[1]!, sceneKey: sceneKeys[1]! }));
     expect(String(ranks[0]![1]) < String(ranks[1]![1])).toBe(true);
   });
 

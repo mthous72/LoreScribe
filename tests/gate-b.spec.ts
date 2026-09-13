@@ -11,7 +11,6 @@ test('B2 — the driver conformance suite', async ({ page }) => {
   await gotoApp(page, './');
   const cases = await page.evaluate(() => window.runConformance('lorescribe-conf'));
 
-   
   console.log('\n' + cases.map((c) =>
     `${c.pass ? ' ✓ ' : ' ✗ '}${c.name}${c.detail ? `\n     ${c.detail}` : ''}`).join('\n'));
 
@@ -40,7 +39,7 @@ print(json.dumps([r[0] for r in rows]))
 
   expect(expected.length).toBeGreaterThan(50);
   expect(actual).toEqual(expected);
-   
+
   console.log(`   ${actual.length} schema objects identical across CPython SQLite and sqlite-wasm`);
 });
 

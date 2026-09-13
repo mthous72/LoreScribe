@@ -46,7 +46,9 @@ const stat = (xs: number[]) => {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** A scene of roughly `words` words, with the cast sprinkled through it. */
-function buildScene(words: number, aliases: readonly AliasEntry[], seed = 7): { html: string; paragraphs: number } {
+function buildScene(
+  words: number, aliases: readonly AliasEntry[], seed = 7,
+): { html: string; paragraphs: number } {
   const rand = rng(seed);
   const lexicon = ['rain', 'iron', 'forge', 'ash', 'wire', 'glass', 'smoke', 'hinge', 'rope', 'salt',
     'the', 'and', 'of', 'a', 'to', 'in', 'was', 'were', 'had', 'her', 'his', 'their'];

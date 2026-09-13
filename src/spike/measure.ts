@@ -138,7 +138,9 @@ export async function runSpike(
         for (let i = 0; i < benchRows; i += per) await driver.batch(benchItems.slice(i, i + per), true);
       }
       const dt = performance.now() - t;
-      profile.push({ mode, txns, rowsPerSec: Math.round(benchRows / (dt / 1000)), effective: eff.journalMode });
+      profile.push({
+        mode, txns, rowsPerSec: Math.round(benchRows / (dt / 1000)), effective: eff.journalMode,
+      });
     }
   }
   out.push({
@@ -237,13 +239,13 @@ export async function runSpike(
   for (const term of corpus.probeTerms.slice(0, 12)) {
     const t = performance.now();
     await driver.query(
-      `SELECT scene_id, snippet(scene_fts, 2, '[', ']', '…', 12) FROM scene_fts WHERE scene_fts MATCH ? LIMIT 50`,
+      'SELECT scene_id, snippet(scene_fts, 2, \'[\', \']\', \'…\', 12) FROM scene_fts WHERE scene_fts MATCH ? LIMIT 50',
       [term], 'all');
     ftsTimes.push(performance.now() - t);
   }
   const tRare = performance.now();
   const rare = await driver.query(
-    `SELECT scene_id FROM scene_fts WHERE scene_fts MATCH ?`, [corpus.rareTerm], 'all');
+    'SELECT scene_id FROM scene_fts WHERE scene_fts MATCH ?', [corpus.rareTerm], 'all');
   ftsTimes.push(performance.now() - tRare);
   const ftsStat = stat(ftsTimes);
   out.push({
@@ -277,7 +279,7 @@ export async function runSpike(
     await driver.query(
       `SELECT s.id, s.summary FROM scene s JOIN scene cur ON cur.id = ?
        WHERE s.global_rank < cur.global_rank ORDER BY s.global_rank DESC LIMIT 12`, [id], 'all');
-    await driver.query(`SELECT id,title,summary FROM chapter WHERE book_id = ? ORDER BY sort_key`, ['bk_0001'], 'all');
+    await driver.query('SELECT id,title,summary FROM chapter WHERE book_id = ? ORDER BY sort_key', ['bk_0001'], 'all');
     briefTimes.push(performance.now() - t);
   }
   const briefStat = stat(briefTimes);

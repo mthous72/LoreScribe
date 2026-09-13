@@ -181,12 +181,13 @@ async function rebuildMentions(
 
   let covered = 0;
   for (let i = 0; i < scenes.length; i++) {
-    const [sceneId, text, povEntityId, rank] = scenes[i] as [string, string | null, string | null, string | null];
+    const [sceneId, text, povEntityId, rank] =
+      scenes[i] as [string, string | null, string | null, string | null];
 
     // Rule 1: only the matcher's own unconfirmed rows go. A confirmed mention
     // is the writer's judgement and an explicit one came from the prose itself.
     await driver.query(
-      `DELETE FROM mention WHERE scene_id = ? AND method = 'alias_match' AND confirmed = 0`,
+      'DELETE FROM mention WHERE scene_id = ? AND method = \'alias_match\' AND confirmed = 0',
       [sceneId], 'run');
 
     const { rows: keptRows } = await driver.query(
@@ -310,5 +311,7 @@ export async function rebuildAll(
 /** Everything the settings panel needs to decide what to offer. */
 export async function rebuildPlan(driver: SqlDriver): Promise<(KindStatus & Rebuilder)[]> {
   const status = await indexStatus(driver);
-  return status.map((s) => ({ ...s, ...rebuilderFor(s.kind), needsRebuild: s.needsRebuild, reason: s.reason }));
+  return status.map((s) => ({
+    ...s, ...rebuilderFor(s.kind), needsRebuild: s.needsRebuild, reason: s.reason,
+  }));
 }

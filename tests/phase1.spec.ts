@@ -12,10 +12,9 @@ test('the editor holds up at 5,000 words with a full cast highlighted', async ({
   const result = await page.evaluate(() => window.runEditorSpike());
   expect(errors, errors.join('\n')).toHaveLength(0);
 
-   
   console.log(`\n   ${result.words.toLocaleString()} words · ${result.paragraphs} paragraphs · ${result.aliases} aliases`);
   for (const m of result.measurements) {
-     
+
     console.log(`  ${m.pass == null ? ' · ' : m.pass ? ' ✓ ' : ' ✗ '}${m.label}\n     ${m.value} ${m.unit}`
       + `   (target ${m.target ?? '—'})${m.detail ? '\n     ' + m.detail : ''}`);
   }

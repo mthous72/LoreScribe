@@ -340,3 +340,43 @@ decision. All three are permissive and non-copyleft, so the boundary doc 13
 actually cares about — nothing copyleft foreclosing a later release — is intact.
 They are named here so the allowlist and the document that describes it agree,
 and so the next addition has to be a decision rather than a convenience.
+
+### D20 — Prettier is waived, and formatting is enforced in ESLint instead
+*Closes the Gate D2 gap recorded in [doc 15 §4](15-phase-0-plan.md): "Prettier —
+dropped silently. Never installed, never waived." The finding was not that
+Prettier is missing. It was that nobody decided.*
+
+Gate D2 listed "ESLint, Prettier, `tsc --strict`" as a bundle, without asking
+whether a whole-file reformatter suits a codebase that uses layout as
+information. It was tried before being waived, so this is measured rather than
+assumed: Prettier 3.9 at `printWidth: 100` rewrote **62 files, +2,599 / −906
+lines**, and the expansion landed almost entirely on constructs that are compact
+on purpose.
+
+- `ARCHIVE_TABLES` in `src/data/archive.ts` is eighteen rows of the same five
+  keys, one per line, and reviewing it means scanning a column. Prettier turns
+  it into ninety lines and the column disappears.
+- Every `try { … } catch { /* going anyway */ }` becomes a three-line block, so
+  the comment saying "ignore this" ends up more visually prominent than the code
+  it guards. `src/app/DbProvider.tsx` went from 150 lines to 224 this way.
+- The carry and borrow loops in `src/domain/sortKey.ts` read as arithmetic when
+  each branch is one line and as control flow when each is four.
+
+Against that, Prettier buys freedom from formatting decisions. Worth a lot on a
+large team; worth less here, and not worth 2,599 lines of churn through
+`git blame` in a repository whose documentation strategy is that the reasoning
+lives in the history.
+
+**What the gate actually wanted** is that formatting is machine-checked and never
+argued about in review, and *that* is now true, which it was not before this
+decision. `@stylistic/eslint-plugin` enforces the properties that genuinely vary
+between hands — quotes, semicolons, indentation, trailing commas and whitespace,
+final newline, a 110-column limit that comments are not exempt from — and CI
+already runs `npm run lint`. Applying it found 99 real violations. Line
+*packing* stays with the author.
+
+The honest cost: someone will eventually want to pack a line the reviewer would
+not. That is one small argument occasionally, against a permanent loss of the
+layouts above. If this repository ever grows past a handful of contributors,
+revisit it — the reason recorded here is about size and about layout carrying
+meaning, and the first of those can change.

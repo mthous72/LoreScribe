@@ -107,7 +107,9 @@ export function buildMatcher(aliases: readonly AliasEntry[]): {
   };
 }
 
-export function detectSpans(text: string, aliases: readonly AliasEntry[], options: DetectOptions = {}): MentionSpan[] {
+export function detectSpans(
+  text: string, aliases: readonly AliasEntry[], options: DetectOptions = {},
+): MentionSpan[] {
   const usable = usableAliases(aliases, options.sceneRank);
   const matcher = buildMatcher(usable);
   if (!matcher || !text) return [];

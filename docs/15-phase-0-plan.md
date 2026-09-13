@@ -261,7 +261,7 @@ overclaim, and the specifics are worth keeping rather than quietly fixing:
 | **A6** pool exhaustion legible | Overflow arrives as `SQLITE_CANTOPEN`; the classifier matches `/SAH pool is full/`, which that string does not contain, so it falls through to `unknown` and renders the raw SQLite message. Untested |
 | **B5** Drizzle wired | `makeDb()` is called once and the result never queried. The contract it exists to prove has never executed |
 | **C1** shadcn/ui | Deferred deliberately ([doc 16](16-phase-0-spike-report.md)) |
-| **D2** Prettier | Dropped silently. Never installed, never waived |
+| **D2** Prettier | Was dropped silently — now **waived with a reason** ([D20](10-decisions.md)). Tried, measured at 62 files reflowed and worse in the places that matter, and replaced with `@stylistic/eslint-plugin` rules so formatting is machine-checked in CI, which it was not before |
 
 Two of those are waivers; three are gaps. They are listed here rather than in a
 backlog because this document's whole argument is that a gate you can declare
@@ -347,7 +347,7 @@ phone, via the Pages URL; `op_log` rows are present and correct for every write.
 | | Work |
 |---|---|
 | D1 | Vitest; Playwright |
-| D2 | ESLint, Prettier, `tsc --strict` |
+| D2 | ESLint (including stylistic rules — Prettier waived, [D20](10-decisions.md)), `tsc --strict` |
 | D3 | CI: typecheck, lint, unit, `third_party_overlap.py`, dependency-licence allowlist ([doc 13 §4](13-legal-and-compliance.md)) |
 | D4 | Pages deploy from CI |
 

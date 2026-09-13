@@ -20,12 +20,12 @@ export function rng(seed: number): () => number {
   };
 }
 
-const ONSET = ['b','br','d','dr','f','g','gr','h','k','kr','l','m','n','p','r','s','sh','st','t','th','v','w','z'];
-const NUCLEUS = ['a','e','i','o','u','ae','ei','ou','ia','au'];
-const CODA = ['','n','r','l','s','th','k','m','ld','rn','st'];
+const ONSET = ['b', 'br', 'd', 'dr', 'f', 'g', 'gr', 'h', 'k', 'kr', 'l', 'm', 'n', 'p', 'r', 's', 'sh', 'st', 't', 'th', 'v', 'w', 'z'];
+const NUCLEUS = ['a', 'e', 'i', 'o', 'u', 'ae', 'ei', 'ou', 'ia', 'au'];
+const CODA = ['', 'n', 'r', 'l', 's', 'th', 'k', 'm', 'ld', 'rn', 'st'];
 
 function word(r: () => number): string {
-  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
   let w = pick(ONSET) + pick(NUCLEUS) + pick(CODA);
   if (r() < 0.35) w += pick(NUCLEUS) + pick(CODA);
   return w;
@@ -78,7 +78,7 @@ const now = 1_760_000_000_000;
 export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   const r = rng(spec.seed);
   const vocab = lexicon(r, spec.vocabulary);
-  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
+  const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
 
   // Zipf-ish: low indices are common, high indices are rare.
   const zipf = () => vocab[Math.min(vocab.length - 1, Math.floor(Math.abs(r() ** 3) * vocab.length))]!;
@@ -106,11 +106,11 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   // rows here because the schema shipped none, which is how that gap was found.
   const head: { sql: string; params: unknown[] }[] = [];
   head.push({
-    sql: `INSERT INTO project (id,title,premise,created_at,updated_at) VALUES (?,?,?,?,?)`,
+    sql: 'INSERT INTO project (id,title,premise,created_at,updated_at) VALUES (?,?,?,?,?)',
     params: [projectId, 'The Grey Warden', prose(40), now, now],
   });
   head.push({
-    sql: `INSERT INTO book (id,project_id,title,sort_key,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
+    sql: 'INSERT INTO book (id,project_id,title,sort_key,created_at,updated_at) VALUES (?,?,?,?,?,?)',
     params: [bookId, projectId, 'Book One', bookKey, now, now],
   });
   batches.push(head);
@@ -125,11 +125,11 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
     entBatch.push({
       sql: `INSERT INTO entity (id,project_id,type_key,name,summary,description,importance,maturity,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      params: [id, projectId, pick(['character','location','faction','item','concept']),
+      params: [id, projectId, pick(['character', 'location', 'faction', 'item', 'concept']),
         word(r).replace(/^./, (c) => c.toUpperCase()), prose(15), prose(120), importance, 'adult', now, now],
     });
     entBatch.push({
-      sql: `INSERT INTO entity_alias (id,entity_id,alias,kind,is_primary,created_at) VALUES (?,?,?,?,1,?)`,
+      sql: 'INSERT INTO entity_alias (id,entity_id,alias,kind,is_primary,created_at) VALUES (?,?,?,?,1,?)',
       params: [`al_${String(i).padStart(5, '0')}`, id, word(r), 'name', now],
     });
   }
@@ -146,7 +146,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
     const id = `ch_${String(i).padStart(4, '0')}`;
     chapterIds.push(id);
     chapBatch.push({
-      sql: `INSERT INTO chapter (id,book_id,number,title,sort_key,summary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+      sql: 'INSERT INTO chapter (id,book_id,number,title,sort_key,summary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
       params: [id, bookId, i + 1, `Chapter ${i + 1}`, chapterKeys[i]!, prose(60), now, now],
     });
   }
@@ -186,7 +186,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
         prose(30), prose(12), entityIds[i % 4]!, Math.floor(r() * 11), spec.wordsPerScene, 'drafted', text, now, now],
     });
     b.push({
-      sql: `INSERT INTO scene_fts (scene_id,title,content_text) VALUES (?,?,?)`,
+      sql: 'INSERT INTO scene_fts (scene_id,title,content_text) VALUES (?,?,?)',
       params: [id, `Scene ${i + 1}`, text],
     });
 
@@ -205,7 +205,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
     for (let m = 0; m < 50; m++) {
       const eIdx = Math.floor(Math.abs(r() ** 2) * spec.entities);
       b.push({
-        sql: `INSERT INTO mention (id,scene_id,entity_id,role,method,created_at) VALUES (?,?,?,?,?,?)`,
+        sql: 'INSERT INTO mention (id,scene_id,entity_id,role,method,created_at) VALUES (?,?,?,?,?,?)',
         params: [`mn_${String(i).padStart(5, '0')}_${m}`, id, entityIds[eIdx] ?? entityIds[0]!,
           m === 0 ? 'pov' : pick(roles), 'alias_match', now],
       });
@@ -223,7 +223,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
               established_at_scene_id,revealed_at_scene_id,spoiler_weight,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?)`,
       params: [`fa_${String(i).padStart(5, '0')}`, projectId,
-        entityIds[Math.floor(r() * spec.entities)]!, pick(['is','knows','owns','fears','killed','loves']),
+        entityIds[Math.floor(r() * spec.entities)]!, pick(['is', 'knows', 'owns', 'fears', 'killed', 'loves']),
         prose(14), sceneIds[est]!, sceneIds[rev]!, Math.floor(r() * 4), now, now],
     });
   }

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "spike": "playwright test",
     "lint": "eslint .",
+    "format": "eslint . --fix",
     "licences": "node tools/check-licences.mjs",
     "check": "npm run typecheck && npm run lint && npm run licences && npm run test:unit",
     "test": "vitest run && playwright test",
@@ -31,6 +32,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.63.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.20.2",
     "@types/react": "^19.3.0",

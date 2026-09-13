@@ -37,10 +37,12 @@ export class ProjectRepository {
 
   async create(title: string, premise?: string): Promise<Project> {
     const now = Date.now();
-    const row: Project = { id: uuidv7(now), title, premise: premise ?? null, createdAt: now, updatedAt: now, rev: 1 };
+    const row: Project = {
+      id: uuidv7(now), title, premise: premise ?? null, createdAt: now, updatedAt: now, rev: 1,
+    };
     await this.driver.batch([
       {
-        sql: `INSERT INTO project (id,title,premise,created_at,updated_at,rev) VALUES (?,?,?,?,?,1)`,
+        sql: 'INSERT INTO project (id,title,premise,created_at,updated_at,rev) VALUES (?,?,?,?,?,1)',
         params: [row.id, row.title, row.premise, now, now],
       },
       this.#op('project', row.id, 'insert', row, now),
@@ -52,7 +54,7 @@ export class ProjectRepository {
     const now = Date.now();
     await this.driver.batch([
       {
-        sql: `UPDATE project SET title = ?, updated_at = ?, rev = rev + 1 WHERE id = ? AND deleted_at IS NULL`,
+        sql: 'UPDATE project SET title = ?, updated_at = ?, rev = rev + 1 WHERE id = ? AND deleted_at IS NULL',
         params: [title, now, id],
       },
       this.#op('project', id, 'update', { title }, now),
@@ -93,7 +95,7 @@ export class ProjectRepository {
 
   #op(table: string, rowId: string, op: string, payload: unknown, ts: number) {
     return {
-      sql: `INSERT INTO op_log (device_id,table_name,row_id,op,payload,ts) VALUES (?,?,?,?,?,?)`,
+      sql: 'INSERT INTO op_log (device_id,table_name,row_id,op,payload,ts) VALUES (?,?,?,?,?,?)',
       params: [deviceId(), table, rowId, op, payload === null ? null : JSON.stringify(payload), ts],
     };
   }
