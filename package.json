@@ -20,6 +20,9 @@
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "drizzle-orm": "0.45.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

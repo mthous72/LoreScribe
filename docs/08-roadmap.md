@@ -291,6 +291,14 @@ scopes the target to Chromium, and if that ever changes it reopens D13 and
 possibly [D8](10-decisions.md) rather than being absorbed as a bug. The rest
 still stand:
 
-- Tiptap with a 5000-word scene plus live mention decorations: measure, don't hope.
+- ~~Tiptap with a 5000-word scene plus live mention decorations~~ — **done.**
+  5,037 words, 51 paragraphs, 200 aliases, 137 highlighted spans. Cold start
+  69 ms; per-keystroke p50 0.8 ms, p95 1.7 ms; worst main-thread frame gap
+  36 ms. Rescanning the whole document on every keystroke instead costs p50
+  3.9 ms — **4.9× the incremental path**, measured through identical
+  transactions and paints rather than by timing a regex against a render.
+  Both stay inside a frame on desktop; the headroom is what buys the phone,
+  which is the platform the spike existed for. Re-runnable from
+  `/#/diagnostics` on any device.
 - OpenRouter streaming direct from a browser: CORS, cancellation, error shapes.
 - A token counter that's accurate enough across model families to budget with.

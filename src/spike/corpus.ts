@@ -99,15 +99,9 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   const projectId = 'pr_0001';
   const bookId = 'bk_0001';
 
+  // entity_type is seeded by migration 002 — the corpus used to insert its own
+  // rows here because the schema shipped none, which is how that gap was found.
   const head: { sql: string; params: unknown[] }[] = [];
-  for (const [key, label] of [
-    ['character', 'Character'], ['location', 'Location'], ['faction', 'Faction'],
-    ['item', 'Item'], ['event', 'Event'], ['concept', 'Concept'], ['language', 'Language'],
-  ] as const) {
-    // NOTE: the schema ships no seed data for entity_type. Phase 1 needs a real
-    // seed migration; the corpus does it here so Gate A can run.
-    head.push({ sql: 'INSERT INTO entity_type (key, label) VALUES (?,?)', params: [key, label] });
-  }
   head.push({
     sql: `INSERT INTO project (id,title,premise,created_at,updated_at) VALUES (?,?,?,?,?)`,
     params: [projectId, 'The Grey Warden', prose(40), now, now],

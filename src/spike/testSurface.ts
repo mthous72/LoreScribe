@@ -1,4 +1,5 @@
 import { runSpike, type SpikeResult } from './measure';
+import { runEditorSpike, type EditorSpikeResult } from './editorSpike';
 import { WorkerSqlDriver } from '../db/client';
 import { migrate } from '../db/migrate';
 import { runConformance, type Case } from '../db/conformance';
@@ -16,6 +17,8 @@ declare global {
     openOnly: (vfsName: string, clearOnInit?: boolean) => Promise<unknown>;
     /** Test surface: hold the VFS open, returning a handle to release it. */
     holdOpen: (vfsName: string) => Promise<unknown>;
+    /** Test surface: the editor spike, doc 08's named Tiptap risk. */
+    runEditorSpike: (words?: number, aliasCount?: number, keystrokes?: number) => Promise<EditorSpikeResult>;
     /** Test surface: what the migration runner produced. */
     migrationState: (vfsName: string) => Promise<unknown>;
     /** Test surface: reopen after a kill and count what survived. */
@@ -168,4 +171,14 @@ window.migrationState = async (vfsName) => {
       audit: (audit.rows as unknown[][]).map((r) => `${r[0]}:${r[1]}`),
     };
   } finally { await driver.close(); driver.terminate(); }
+};
+
+window.runEditorSpike = async (words, aliasCount, keystrokes) => {
+  const mount = document.createElement('div');
+  mount.style.position = 'absolute';
+  mount.style.left = '-10000px';
+  document.body.appendChild(mount);
+  try {
+    return await runEditorSpike(mount, { words, aliasCount, keystrokes });
+  } finally { mount.remove(); }
 };
