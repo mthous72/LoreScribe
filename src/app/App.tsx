@@ -5,6 +5,7 @@ import { DbProvider, useDb } from './DbProvider';
 import { LockedScreen, YieldedScreen } from './LockedScreen';
 import { ProjectsPage } from './ProjectsPage';
 import { DiagnosticsPage } from './DiagnosticsPage';
+import { ManuscriptPage } from './ManuscriptPage';
 
 /**
  * The update offer, not an update interruption.
@@ -65,6 +66,7 @@ function Shell() {
       {db.state === 'ready' && (
         <Routes>
           <Route path="/" element={<ProjectsPage />} />
+          <Route path="/project/:projectId" element={<ManuscriptPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
         </Routes>
       )}

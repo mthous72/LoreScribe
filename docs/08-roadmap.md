@@ -98,6 +98,10 @@ arithmetic sits beside the expectation where a reviewer can check it.)
 ## Phase 1 — The graph, with no AI at all *(~3 weeks)*
 - Codex CRUD for all entity types, aliases, relationships.
 - Manuscript tree (book/part/chapter/scene) with drag reorder and LexoRank.
+  *(Built — `src/data/manuscriptRepository.ts` and `src/app/ManuscriptPage.tsx`.
+  A reorder writes one row; `global_rank` and `scene_fts` move in the same
+  transaction. Pointer events with a keyboard path, not HTML5 drag-and-drop,
+  which never fires on touch — [D22](10-decisions.md).)*
 - Tiptap editor, autosave, word counts, scene versions and diff.
 - Alias-matching mention detection; backlinks; entity hover cards; `@` insert.
 - Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.

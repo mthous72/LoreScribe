@@ -420,3 +420,33 @@ asset while the cache sat there full. `caches.match(..., { ignoreVary: true })`
 fixes it, and it is safe precisely because the entries are content-hashed files
 whose URL is their whole identity. A PWA that claims offline and fails offline
 is worse than one that claims nothing, and only the test caught it.
+
+### D22 — Reorder is pointer events plus a keyboard path, not HTML5 drag-and-drop
+*Same shape as [D20](10-decisions.md) and [D21](10-decisions.md): a dependency
+considered, measured against what it buys, and the reasoning recorded so the
+next person can reverse it on evidence rather than taste.*
+
+**Not the HTML5 drag-and-drop API.** Not "works badly on touch" — `dragstart` is
+never dispatched by a touch, so the entire feature would be absent on a phone.
+[D15](10-decisions.md) says the phone is a peer rather than a viewer, which makes
+a mouse-only reorder not a reorder. Pointer Events cover mouse, touch and pen in
+one code path.
+
+**Not dnd-kit**, which is the reasonable pick and genuinely does this better. Two
+reasons it is not here: the drop model this tree needs is small — a list of rows
+and a line between two of them — and the hard part of an accessible reorder is
+the keyboard path, which has to be written either way. Alt+↑/↓ on a focused row
+does exactly what a drag does, including across a chapter boundary, because a
+tree only reorderable by dragging is a tree some writers cannot reorder at all.
+
+**Drop targets come from `elementFromPoint`, not from measured rectangles.**
+Measurements go stale the moment the list scrolls or a row wraps to two lines,
+and a stale rectangle drops a scene in the wrong place — a data change, not a
+visual glitch.
+
+**The known limitation, recorded rather than discovered later.** There is no
+auto-scroll: dragging to the edge of a long manuscript does not scroll it, so a
+scene cannot be dragged past the visible list. The keyboard path has no such
+limit. Auto-scroll and collision strategies are most of what a library would buy,
+so the day a writer needs to drag a scene twenty chapters is the day to take
+dnd-kit and delete `src/ui/useReorder.ts`.

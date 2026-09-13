@@ -50,6 +50,12 @@ export interface SceneContent {
   contentText: string | null;
 }
 
+/** A part and its chapters, or the chapters that belong to no part. */
+export interface OutlineGroup {
+  part: Part | null;
+  chapters: { chapter: Chapter; scenes: SceneSummary[] }[];
+}
+
 /** Where a new or moved item goes among its siblings. */
 export interface Placement {
   /** Put it directly after this sibling. Omit both for the end of the list. */
@@ -103,6 +109,46 @@ export class ManuscriptRepository {
   /** Every scene in a book, in reading order. The order `global_rank` exists for. */
   async readingOrder(bookId: string): Promise<SceneSummary[]> {
     return this.#scenes('c.book_id = ?', [bookId], 's.global_rank');
+  }
+
+  /**
+   * A whole book's structure in two queries.
+   *
+   * Not `listScenes` per chapter: that is one query per chapter, and a novel
+   * has forty of them. The tree reloads after every create, rename and move, so
+   * this is on the path of every interaction rather than a page load.
+   *
+   * Chapters with no part come first, under a `null` part, which is the same
+   * order `sceneGlobalRank` gives them — an empty part segment sorts below any
+   * real one. The tree and the manuscript therefore agree by construction
+   * rather than by two functions happening to make the same choice.
+   */
+  async outline(bookId: string): Promise<OutlineGroup[]> {
+    const [parts, chapters, scenes] = await Promise.all([
+      this.listParts(bookId),
+      this.listChapters(bookId),
+      this.readingOrder(bookId),
+    ]);
+
+    const byChapter = new Map<string, SceneSummary[]>();
+    for (const scene of scenes) {
+      const at = byChapter.get(scene.chapterId);
+      if (at) at.push(scene);
+      else byChapter.set(scene.chapterId, [scene]);
+    }
+    const withScenes = (c: Chapter) => ({ chapter: c, scenes: byChapter.get(c.id) ?? [] });
+
+    const loose = chapters.filter((c) => c.partId === null);
+    const groups: OutlineGroup[] = loose.length
+      ? [{ part: null, chapters: loose.map(withScenes) }]
+      : [];
+    for (const part of parts) {
+      groups.push({
+        part,
+        chapters: chapters.filter((c) => c.partId === part.id).map(withScenes),
+      });
+    }
+    return groups;
   }
 
   async getSceneContent(sceneId: string): Promise<SceneContent | null> {

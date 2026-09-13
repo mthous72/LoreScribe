@@ -4,6 +4,7 @@ import { SqlOpenError } from '../db/driver';
 import { migrate } from '../db/migrate';
 import { makeDb, type Db } from '../db/drizzle';
 import { ProjectRepository } from '../data/projectRepository';
+import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -19,6 +20,7 @@ interface Ready {
   driver: WorkerSqlDriver;
   db: Db;
   projects: ProjectRepository;
+  manuscript: ManuscriptRepository;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -120,7 +122,9 @@ export function DbProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setState({
           state: 'ready', driver, db: makeDb(driver),
-          projects: new ProjectRepository(driver), diagnostics, storage, uncleanShutdown,
+          projects: new ProjectRepository(driver),
+          manuscript: new ManuscriptRepository(driver),
+          diagnostics, storage, uncleanShutdown,
         });
       } catch (e) {
         lock?.release();
