@@ -174,6 +174,9 @@ export function ManuscriptPage() {
         Drag a row by its handle, or focus one and press Alt with the up and down
         arrows. Moving a scene past the end of a chapter moves it into the next.
       </p>
+      <Link to={`/project/${projectId}/codex`} className="mt-2 inline-block text-xs underline opacity-70">
+        Codex — the people, places and things this book knows about →
+      </Link>
 
       {/* Announced rather than only shown: a drag gives sighted feedback the
           keyboard path does not. */}
