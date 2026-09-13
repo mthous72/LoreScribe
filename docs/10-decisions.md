@@ -216,6 +216,22 @@ force-push or a deletion commit — assume anything pushed is permanently public
   never a private branch or a "we'll clean it up before merging" branch of this
   one.
 
+**Recorded because it happened.** A Phase 1 audit found two names drawn from
+the real story bible sitting in committed test fixtures — a character's name and
+a word from the book's title, used as filler in a sanitiser test and a mention
+test. No prose, no plot, nothing that reveals anything; both are ordinary
+English words, and the practical exposure is nil. They are corrected, and they
+are written down here anyway, because the interesting part is the mechanism: I
+had read that bible, needed a plausible name, and one surfaced. Nobody decided
+to use it.
+
+That is what this rule is actually defending against — not a careless paste, but
+recall. The control is correspondingly unglamorous: fixture names are invented
+deliberately, the synthetic cast is the Grey Warden set named in
+[doc 01](01-architecture.md), and "it sounded right" is not where a fixture name
+comes from. There is no mechanical check available, because building one would
+require the very content this rule keeps out of the repository.
+
 ### D15 — The mobile editor is not a lightweight capture tool; it's a full peer
 Superseded assumption: doc 07 item 25 originally planned phone = capture and
 review, desktop = drafting, on the reasoning that thumb-typing 2000 words isn't

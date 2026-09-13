@@ -17,7 +17,7 @@ describe('tokenising', () => {
   });
 
   it('strips headings and scene markers before analysing', () => {
-    const t = tokenise('## Chapter One\nScene 3: The Kiln\nThe rain fell.');
+    const t = tokenise('## Chapter One\nScene 3: The Long Hall\nThe rain fell.');
     expect(t.sentences).toEqual([['the', 'rain', 'fell']]);
   });
 

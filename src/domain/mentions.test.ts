@@ -99,8 +99,8 @@ describe('roles', () => {
   });
 
   it('separates present from merely mentioned by frequency', () => {
-    const aliases = [A('e1', 'Kaelen'), A('e2', 'Bren'), A('e3', 'Sasha')];
-    const text = 'Kaelen spoke to Kaelen’s reflection. Bren waited. Bren sighed. Sasha was named once.';
+    const aliases = [A('e1', 'Kaelen'), A('e2', 'Bren'), A('e3', 'Ilva')];
+    const text = 'Kaelen spoke to Kaelen’s reflection. Bren waited. Bren sighed. Ilva was named once.';
     const { mentions } = detectMentions(text, aliases);
     const role = (id: string) => mentions.find((m) => m.entityId === id)!.role;
     expect(role('e1')).toBe('present');
@@ -114,9 +114,9 @@ describe('roles', () => {
   });
 
   it('orders by role then frequency, so a brief can seed from the top', () => {
-    const aliases = [A('e1', 'Kaelen'), A('e2', 'Bren'), A('e3', 'Sasha')];
+    const aliases = [A('e1', 'Kaelen'), A('e2', 'Bren'), A('e3', 'Ilva')];
     const { mentions } = detectMentions(
-      'Sasha, Sasha, Sasha. Bren once. Kaelen watched.', aliases, { povEntityId: 'e1' });
+      'Ilva, Ilva, Ilva. Bren once. Kaelen watched.', aliases, { povEntityId: 'e1' });
     expect(mentions.map((m) => m.entityId)).toEqual(['e1', 'e3', 'e2']);
   });
 

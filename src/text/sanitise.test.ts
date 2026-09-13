@@ -99,7 +99,7 @@ describe('mojibake repair', () => {
 
 describe('scaffolding', () => {
   it('strips scene label lines in their variants', () => {
-    for (const label of ['Scene 3:', '**Scene 3: The Kiln**', '## Scene 12', 'SCENE 4 — Dawn']) {
+    for (const label of ['Scene 3:', '**Scene 3: The Long Hall**', '## Scene 12', 'SCENE 4 — Dawn']) {
       expect(stripScaffolding(`${label}\nThe rain fell.`)).toBe('The rain fell.');
     }
   });
@@ -159,7 +159,7 @@ describe('the pipeline', () => {
     'I should open with the forge.',
     '</think>',
     '',
-    '**Scene 7: The Kiln**',
+    '**Scene 7: The Long Hall**',
     'Kaelen confronts the smith about the missing blade.',
     '',
     '-The forge was cold. He paused -- then spoke.   ',
