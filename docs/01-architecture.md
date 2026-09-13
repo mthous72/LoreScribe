@@ -102,8 +102,8 @@ interface ModelCapabilities {
 ```
 
 **Reasoning allowance is part of the capability model, not an afterthought.**
-Reasoning models spend tokens in a private think channel *before* answering —
-measured at ~2,500 tokens for a two-sentence request. A budget sized for the
+Reasoning models emit hidden deliberation tokens ahead of the visible answer —
+roughly 2,500 of them for a two-sentence request, in one measured case. A budget sized for the
 answer gets eaten and the content comes back empty or truncated. The adapter
 records observed `reasoning_tokens` per model, keeps the worst case, adds it
 preemptively to later requests, and escalates up to twice on truncation. Streaming

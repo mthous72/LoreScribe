@@ -19,6 +19,11 @@ Read in order:
 | [12 — Algorithm specs](12-algorithms.md) | **The implementation reference.** Behaviour specs for the non-obvious algorithms, written to be built from scratch |
 | [13 — Legal & compliance](13-legal-and-compliance.md) | Six exposure surfaces and the mechanism for each — routing, structural floor, provenance, dependency licences, real people, data handling |
 
+Also: [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) (what was learned from
+whom, and the notices reproduced out of courtesy) and
+[`tools/third_party_overlap.py`](../tools/third_party_overlap.py) (proves the
+ideas-only rule mechanically — run it before any release).
+
 **If you read one thing:** doc 03. It's the product.
 **If you read two:** doc 09 — it changes parts of 01, 03, 04, 07 and 08.
 **Before building:** doc 10, then the `opfs-sahpool` spike at the top of Phase 0.

@@ -87,6 +87,21 @@ as **behaviour specifications** in [doc 12](12-algorithms.md), at implementable
 fidelity. That document is the implementation reference from here on; the source
 repositories are not, and no one needs to open them again.
 
+**The reference policy, made concrete.** "Ideas only" needs a line, so here it is:
+
+| May be taken freely | Only as a marked, attributed quotation in docs 09/11 | Never |
+|---|---|---|
+| Which problems exist · algorithms and their step order · parameter values that work · observed facts and measurements · data-model concepts · UX patterns | Short excerpts of comments, README text or prompt wording, for commentary | Code · prompt strings used as *our* prompts · UI copy · data tables (stopword lists, substitution maps) · regular expressions · test fixtures · file layouts copied wholesale |
+
+Copyright protects expression, not ideas, so the first column carries no
+conditions from anyone's licence. The middle column is fair comment and is in any
+case within what MIT permits, but it is confined to the two review documents so
+that nothing in a specification or in code ever inherits borrowed wording. The
+third column is simply not done. [`tools/third_party_overlap.py`](../tools/third_party_overlap.py)
+checks all of this mechanically against the reference checkouts and fails on any
+7-word overlap outside the permitted files; [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)
+reproduces the MIT notice regardless, out of courtesy.
+
 Phase 0b is accordingly an *implementation* phase, not a port. It costs more than
 a transliteration would have — roughly a week rather than three days — and buys a
 clean licence, TypeScript that reads like the rest of the codebase rather than

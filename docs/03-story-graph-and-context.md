@@ -167,10 +167,10 @@ chapter breakdown, arc beats) needs a different, smaller package: a budgeted dig
 of established lore — characters, arcs, open threads, world, locations, codex, in
 that priority — wrapped in an instruction that makes it binding:
 
-> This story belongs to the world above. Use these characters, arcs, places and
-> facts as the foundation — extend and deepen them. Do not invent replacements for
-> them, rename them, or contradict them. Only introduce new elements where the
-> established lore has gaps.
+> Everything above is settled canon for this project. Build on it: reuse these
+> characters, places, arcs and facts, deepen them, and keep their names and natures
+> intact. Add something new only where the canon is silent — never as a substitute
+> for what already exists.
 
 Without this, outline generation happily invents a parallel world that contradicts
 the codex, and the drift the beat/scene links were designed to prevent gets

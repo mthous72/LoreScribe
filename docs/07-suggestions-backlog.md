@@ -42,8 +42,8 @@ is won or lost; the last is genuinely optional.
    plain text/Markdown/DOCX with chapter detection. Anything else — Scrivener,
    SillyTavern, KoboldAI — only if you personally have such files (§F). Everything
    lands in the same proposal-review panel.
-8b. **Bring-your-own reference material.** Import PDF/TXT/Markdown, and scanned
-   documents via OCR, as a non-canon source band that grounds generation, is
+8b. **A research library alongside the book.** Import PDFs, text and Markdown —
+   scanned pages via OCR — as a non-canon source band that grounds generation, is
    retrieved into its own reserved context slice, and is excluded from exports.
    For historical, technical, legal or medical fiction this is load-bearing. Pairs
    with the `ip` laws: references are for consultation, never reproduction, so the

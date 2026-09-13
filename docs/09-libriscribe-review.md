@@ -10,6 +10,11 @@ in the docstrings, and a number of them are things the LoreScribe plan would hav
 had to rediscover the hard way. A few of its findings contradict assumptions in
 the current plan.
 
+*Short excerpts from LibriScribe's comments, prompt strings and README are quoted
+in this document — always in quotation marks or block quotes, always attributed —
+for the purpose of commentary. No code is reproduced or incorporated
+([D10](10-decisions.md)); see [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).*
+
 ---
 
 ## The headline
@@ -38,17 +43,11 @@ discovered by shipping.
 
 ### 1. Evidence-quote verification with auto-downgrade
 `milestone_verifier.py` asks the model to grade whether prose *actually delivered*
-a planned beat, and to cite an exact quote as evidence. Then:
-
-```python
-if delivered and not _evidence_in_prose(evidence, prose):
-    proposed = "uncertain"
-    reasoning += " (Downgraded: the cited evidence is not an actual quote.)"
-```
-
-Normalised substring match — smart quotes, dashes and whitespace folded, minimum
-12 characters. A fabricated quote downgrades the verdict rather than being
-believed.
+a planned beat, and to cite an exact quote as evidence. The verifier then checks
+that the quote really is a substring of the prose — after folding smart quotes,
+dashes and whitespace, and requiring at least a dozen characters — and if it isn't,
+a "delivered" verdict is overridden to *uncertain* with a note saying why. A
+fabricated quote downgrades the verdict rather than being believed.
 
 **This is a general anti-hallucination primitive, not a milestone feature.** It
 should be a cross-cutting rule in LoreScribe: *any AI claim about the manuscript
@@ -74,14 +73,14 @@ independently:
 2. After generation, deterministically check for violations → **regenerate once
    with the violations named**.
 
-And the load-bearing insight, stated plainly: *instruction-only steering
-("don't reuse imagery") is too weak for small models, but small models do follow
-explicit named bans.* That is the entire justification for the Laws Engine's
+And the load-bearing insight, which its docstring states outright: telling a
+small model not to repeat itself doesn't work, while naming the specific phrases
+it may not use does. That is the entire justification for the Laws Engine's
 verification phase, confirmed by someone who measured it.
 
 The implementation details are not obvious and are worth porting verbatim:
 - proper nouns excluded from ban candidates, so character names never get banned;
-- n-grams never span sentence or paragraph boundaries;
+- n-grams are cut at sentence and paragraph boundaries rather than running across them;
 - staggered fragments of a long phrase chain-merged back into the full phrase;
 - scene-opening similarity at `SequenceMatcher` ratio ≥ 0.6;
 - the same detector re-framed as a *fix-this report* for revision passes rather
@@ -108,10 +107,10 @@ Idempotent pure functions. **Scaffolding must never reach the reader** is the
 principle, and there is no prompt that achieves it reliably.
 
 ### 4. Reasoning models need a learned token allowance
-`llm_client.py` carries `self._observed_reasoning: Dict[str, int]`. The recorded
-observation: **~2,500 thinking tokens for a two-sentence ask.** A budget sized for
-the answer gets consumed by the private think channel and the content comes back
-empty or truncated.
+`llm_client.py` keeps a per-model record of observed reasoning spend. The figure
+recorded in its comments is striking — on the order of **2,500 hidden tokens for a
+two-sentence request**. A budget sized for the answer is consumed by deliberation
+the caller never sees, and the content comes back empty or truncated.
 
 The fix: read `reasoning_tokens` from the response, remember the worst case per
 model, add it preemptively to every later request, escalate the budget up to twice
@@ -125,10 +124,10 @@ model profile.
 
 ### 5. Grammar-constrained structured output
 The plan said "fall back to a parse-with-repair path" for local models.
-`structured_output.py` is better: an OpenAI-style
-`response_format: {type: "json_schema"}` **compiles to a GBNF grammar on
-llama.cpp-backed servers and constrains decoding at the token level** — a small
-local model then *cannot* emit a fence, a preamble, or a missing key.
+`structured_output.py` is better: it sends an OpenAI-style JSON-schema
+`response_format`, which llama.cpp-based servers turn into a **decoding grammar
+that constrains generation token by token** — a small local model then *cannot*
+emit a fence, a preamble, or a missing key.
 
 Two non-obvious details worth taking:
 - `_all_objects_closed()` auto-detects whether a schema qualifies for OpenAI's
@@ -146,17 +145,14 @@ Repair stays as the universal fallback, not the first line of defence.
 ## Tier 2 — Adopt the concept; LoreScribe's schema generalises it
 
 ### 6. Reference material as a separate, non-canon source band
-Missing from the plan entirely, and it's a genuine gap. LibriScribe lets you
-import PDF/TXT/Markdown — and scanned PDFs/images via bundled OCR — as a distinct
-**source type** that grounds brainstorming and generation but *never becomes
-canon* and is *excluded from exports*.
+Missing from the plan entirely, and it's a genuine gap. LibriScribe imports PDFs,
+text and Markdown — scanned material through bundled OCR — as a **separate source
+type**: it informs brainstorming and generation, is never promoted to canon, and
+stays out of every export.
 
 The context builder reserves its slice **first**, so canon context can't crowd it
-out, and labels it unmistakably:
-
-```
-=== REFERENCE MATERIAL (imported source — use as background/citation, NOT canon) ===
-```
+out, and labels the block unmistakably — the header string tells the model, in so
+many words, that what follows is imported background to cite from and *not canon*.
 
 Canon retrieval meanwhile filters it out (`exclude_source_type: ["reference"]`).
 For historical, technical, legal or medical fiction this is the difference between
@@ -195,15 +191,11 @@ Take the four-type taxonomy directly, plus `opened_chapter` /
 
 ### 9. Character state extraction — keep their prompt, keep our schema
 `char_state.py` independently arrives at `fact_knowledge`. Its
-`knowledge_timeline_block()` renders:
-
-```
-CHARACTER KNOWLEDGE TIMELINE (who learns what, when):
-- Ch 4: Maren learns: the seal is broken
-...
-If a chapter shows a character ACTING ON or REFERRING TO information before the
-chapter where they learn it, report it as note_type "knows_too_early".
-```
+`knowledge_timeline_block()` renders a titled list of one line per learning event
+— *chapter, character, what they learned* — followed by an instruction to the
+checking model to report any chapter in which a character acts on or refers to
+something before the chapter where they learn it, under the note type
+`knows_too_early`.
 
 Their storage is per-chapter snapshots keyed by integer; ours is per-fact with
 scene references, which is finer-grained and survives reordering — so keep our
@@ -217,8 +209,8 @@ schema. But take:
 ### 10. The deterministic gap finder
 `gap_finder.py`, zero LLM calls: dangling references (a name in a relational field
 with no matching record), out-of-range chapter numbers, unresolved arcs and
-threads, "thin" characters missing the fields the writing pipeline actually
-consumes, missing voice profiles. Each gap carries a stable id, severity, a
+threads, under-specified characters lacking the fields the generation prompts
+depend on, missing voice profiles. Each gap carries a stable id, severity, a
 one-line message, evidence, and a click-to-open target.
 
 The plan has an AI continuity checker but no free deterministic tier. This one is
@@ -278,9 +270,10 @@ bare list, and it costs nothing.
     they've built the splice machinery.
 17. **Prompt/context preview before spending a token** — the brief inspector,
     independently invented. Good validation that it matters.
-18. **Import SillyTavern character cards & World Info, KoboldAI World Info**,
-    auto-detected, with an optional AI-map pass for unknown formats, all through
-    the same review panel. Excellent interop; add alongside the planned Scrivener
+18. **Imports SillyTavern character cards and World Info, and KoboldAI World
+    Info**, detecting the format automatically and offering a model-assisted field
+    mapping for anything unrecognised — every result going through the same review
+    panel. Excellent interop; add alongside the planned Scrivener
     import.
 19. **Prose register dial (1–5)**, gated behind opt-in + age affirmation, with the
     honest framing: "purely a generation steer; performs no filtering of model

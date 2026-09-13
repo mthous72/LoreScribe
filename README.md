@@ -23,8 +23,9 @@ it. Founding decisions are logged in [doc 10](docs/10-decisions.md).
 ## Acknowledgements
 
 No code is taken from any other project — LoreScribe is written fresh and released
-into the public domain. Two projects nonetheless shaped its design, and the debt is
-worth stating:
+into the public domain; [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) has the
+detail and [`tools/third_party_overlap.py`](tools/third_party_overlap.py) checks it.
+Two projects nonetheless shaped its design, and the debt is worth stating:
 
 - **[LibriScribe](https://github.com/mthous72/libriscribe)** (MIT) by Fernando
   Guerra and Lenxys, forked and substantially extended — a hard-won record of what

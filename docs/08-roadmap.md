@@ -188,8 +188,9 @@ pace, treat Phase 1 as the thing to cut down, not the phases after it.
 
 These came out of the LibriScribe review and apply to every phase:
 
-1. **No cascade.** Editing anything never regenerates anything downstream. Impact
-   hints show where an entity is referenced later; the writer decides. A writer will
+1. **No cascade.** Editing anything never regenerates anything downstream. An
+   impact view lists every later scene that references the edited entity, and the
+   writer decides what to do about it — the tool never does it for them. A writer will
    not trust an AI tool with 80,000 words if editing chapter 3 might silently
    rewrite chapter 30.
 2. **Nothing auto-applies.** Every AI output is a proposal until a human accepts it.

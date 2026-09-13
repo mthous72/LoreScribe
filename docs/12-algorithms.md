@@ -69,11 +69,11 @@ take the top 10.
 
 ### 1.2 Rendering into the prompt
 
-Three labelled blocks, phrased as hard constraints rather than preferences:
-banned phrases ("you are BANNED from using these or close variants"), overused
-words ("use each at most once — find different words"), and prior scene openings
-("your scene must open differently — a different sense, subject and sentence shape
-than all of these"). Return empty when there is nothing to guard against.
+Three labelled blocks, each phrased as a hard constraint rather than a preference:
+the forbidden phrases (including close variants), the overused words (each permitted
+once at most, with a nudge toward alternatives), and the recent scene openings (the
+new scene must begin from a different image, sense and sentence structure than every
+one listed). Emit nothing when nothing qualifies.
 
 ### 1.3 Post-generation check (deterministic, no model)
 
@@ -88,9 +88,8 @@ not something to burn tokens on.
 
 ### 1.4 Revision mode
 
-The same detector, reframed: instead of a ban list for the next scene, a
-fix-this report over an existing chapter ("keep at most one occurrence of each and
-rewrite the rest").
+The same detector, reframed as an overuse report for a revision pass over an
+existing chapter: leave one instance of each flagged phrase and reword the others.
 
 ---
 
@@ -117,9 +116,10 @@ before it is stored or displayed. Order matters.
    being a prefix of the other when longer than 20 characters.
 4. **Normalise punctuation.** Runs of 2+ hyphens become an em dash — but skip
    markdown horizontal rules and list items. Collapse spaces around em dashes.
-   Remove a hyphen glued to a capital or opening quote at line start or after a
-   sentence break (a model tic; a real list item always has a space after the
-   hyphen). Fix `NAME'S` → `NAME's` after an all-caps word.
+   Delete a hyphen sitting directly against a capital letter or opening quotation
+   mark at the start of a line or right after a sentence break — genuine list items
+   have a space after the hyphen, this tic doesn't. Lower-case a possessive `'S`
+   following an all-caps word.
 5. **Normalise whitespace.** Strip trailing spaces per line, collapse 3+ blank
    lines to one blank line, trim leading/trailing newlines.
 
@@ -174,10 +174,11 @@ only learnable if it's measured.
 
 ## 5. Grammar-constrained structured output
 
-An OpenAI-style `response_format: {type: "json_schema", …}` compiles to a GBNF
-grammar on llama.cpp-backed servers and constrains decoding at the token level, so
-a small local model **cannot** emit a fence, a preamble or a missing key. Prefer it
-everywhere; keep JSON repair as the fallback, not the first line of defence.
+On llama.cpp-based serving stacks, an OpenAI-style JSON-schema `response_format`
+is turned into a decoding grammar, so the output is constrained token by token —
+fences, preambles and missing keys become impossible even for a very small model.
+Prefer it everywhere; treat JSON repair as the fallback, not the first line of
+defence.
 
 Two rules that are easy to get wrong:
 

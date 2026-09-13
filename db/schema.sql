@@ -363,8 +363,8 @@ CREATE TABLE model_profile (         -- a named role the app calls
   params_json TEXT,                  -- temperature, top_p, max_tokens...
   context_window INTEGER,
   cost_in_per_mtok REAL, cost_out_per_mtok REAL,
-  -- Reasoning models spend tokens in a private think channel BEFORE answering
-  -- (~2.5k observed for a two-sentence ask). Learned worst case, added preemptively
+  -- Reasoning models burn hidden deliberation tokens ahead of the visible answer
+  -- (~2.5k measured for a two-sentence request). Learned worst case, added preemptively
   -- to every request; streaming cannot retry, so it is applied up front there.
   reasoning_allowance INTEGER NOT NULL DEFAULT 0,
   supports_json_schema INTEGER,      -- grammar-constrained decoding available

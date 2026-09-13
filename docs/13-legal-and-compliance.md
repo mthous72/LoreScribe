@@ -109,8 +109,28 @@ mechanism**, and it has to be span-level to be useful:
 
 ## 4. The code itself
 
-Settled by [D10](10-decisions.md): nothing ported, LoreScribe stays Unlicense.
-The remaining exposure is dependencies. Irrelevant while the tool is personal and
+**Referenced projects.** Settled by [D10](10-decisions.md): nothing ported,
+LoreScribe stays Unlicense. MIT's single condition — carry the notice with "copies
+or substantial portions of the Software" — is not triggered by ideas, algorithms,
+parameter values or short attributed quotations, and copyright itself does not
+reach ideas. So the obligation is nil; the *discipline* is what keeps it nil:
+
+- Borrowed wording is confined to the two review documents, marked and attributed.
+  Specifications, schema and code are in our own words — verified by
+  [`tools/third_party_overlap.py`](../tools/third_party_overlap.py), which fails on
+  any 7-word overlap outside those files. Run it against fresh checkouts of the
+  reference projects before any release and whenever a review document is edited.
+- [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) reproduces LibriScribe's MIT
+  notice anyway, and states plainly that no GPL material from novelWriter is present.
+  Neither is required; both remove any argument.
+- The fork you maintain is treated exactly like any other MIT project. Your own
+  additions are yours to relicense, but the repository also carries Fernando
+  Guerra's original work under his copyright, and drawing a line through a codebase
+  by authorship is error-prone. Ideas-only makes the line unnecessary.
+- MIT grants no trademark rights and none are needed: "LibriScribe" and
+  "novelWriter" appear only to refer to those projects.
+
+**Dependencies.** The remaining exposure. Irrelevant while the tool is personal and
 unpublished — but a licence check in CI costs one config file and prevents a
 copyleft dependency from quietly foreclosing the option to release later.
 Allowlist: MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, Unlicense, CC0, and public domain

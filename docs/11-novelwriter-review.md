@@ -14,6 +14,10 @@ that does.
 Less to take than from LibriScribe, but two of the findings are things the current
 plan would have shipped as bugs.
 
+*novelWriter is GPL-3. Nothing from it is copied or derived from; a handful of
+identifiers and constants are named below for the purpose of commentary. See
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).*
+
 ---
 
 ## Adopt
