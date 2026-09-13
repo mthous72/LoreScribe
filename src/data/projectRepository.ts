@@ -18,8 +18,19 @@ export interface Project {
  * feature rather than a rewrite. Nothing reads op_log yet — it is written now
  * because it cannot be reconstructed later.
  *
- * Every mutation and its op_log row go in ONE batch, which is one transaction.
- * A log that can disagree with the data it describes is worse than no log.
+ * Every mutation and its op_log row go in ONE batch, which is one transaction,
+ * so a failure to log rolls the mutation back.
+ *
+ * That reads like a violation of doc 08's rule 6 — "telemetry must never break
+ * generation" — and is deliberately carved out of it. The test is whether the
+ * record can be reconstructed afterwards. A cost figure can; the `ai_run` row
+ * still holds the tokens. `op_log` cannot: nothing else records *what changed*,
+ * so a dropped entry leaves a log that silently disagrees with the data it
+ * describes, and everything downstream works from a fiction. A best-effort sync
+ * log is worse than none, because it looks trustworthy.
+ *
+ * Anything written for our benefit is best-effort and wrapped. Anything that is
+ * part of the writer's record is atomic with it.
  */
 export class ProjectRepository {
   constructor(private readonly driver: SqlDriver) {}
@@ -52,7 +63,15 @@ export class ProjectRepository {
   async remove(id: string): Promise<void> {
     const now = Date.now();
     await this.driver.batch([
-      { sql: `UPDATE project SET deleted_at = ?, rev = rev + 1 WHERE id = ?`, params: [now, id] },
+      {
+        // updated_at moves too: a sync keyed on it would otherwise never see
+        // the tombstone, which is the one change it most needs to replicate.
+        // `deleted_at IS NULL` makes a repeat delete a no-op rather than a
+        // second tombstone and a second rev bump.
+        sql: `UPDATE project SET deleted_at = ?, updated_at = ?, rev = rev + 1
+              WHERE id = ? AND deleted_at IS NULL`,
+        params: [now, now, id],
+      },
       this.#op('project', id, 'delete', null, now),
     ]);
   }

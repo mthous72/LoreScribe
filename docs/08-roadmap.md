@@ -271,6 +271,30 @@ These came out of the LibriScribe review and apply to every phase:
    logging write to a read-only working directory made *every* completion return an
    empty string — the failure was silent and total.)
 
+   **Carve-out: the sync log is not telemetry.** `op_log` is written in the same
+   transaction as the mutation it describes, and a failure to write it rolls the
+   mutation back. That looks like a violation of this rule and is deliberately
+   not one, because the two records fail in opposite directions.
+
+   The test is whether the record can be reconstructed afterwards. A cost figure
+   can: the `ai_run` row still holds the tokens, and a missing total is a gap in
+   a report. `op_log` cannot — nothing anywhere else says *what changed*, so a
+   dropped entry leaves a log that silently disagrees with the data it claims to
+   describe, and every consumer of it from that point on is working from a
+   fiction. A best-effort sync log is worse than no sync log, because it looks
+   trustworthy.
+
+   So: **anything written for our benefit is best-effort and wrapped; anything
+   that is part of the user's record is atomic with it.** `op_log`, `rev` and
+   soft-delete tombstones are the second kind. Cost logging, spend meters,
+   `ai_run` timings and the diagnostics harness are the first, and none of them
+   may ever take a write down with them.
+
+   The accepted consequence, stated rather than discovered later: if the database
+   cannot accept an `op_log` row, the user's edit fails too. Under the conditions
+   that cause it — a full disk, a corrupt file — the edit was not going to
+   succeed anyway, so the honest failure is the loud one.
+
 ## Sequencing rules
 
 1. **Phase 1 before any AI.** The graph is the product; AI is a consumer of it.

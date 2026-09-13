@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDb } from './DbProvider';
 import type { Project } from '../data/projectRepository';
+import { BackupPanel } from './BackupPanel';
 
 export function ProjectsPage() {
   const db = useDb();
@@ -72,6 +73,8 @@ export function ProjectsPage() {
           </li>
         )}
       </ul>
+
+      {projects[0] && <BackupPanel projectId={projects[0].id} projectTitle={projects[0].title} />}
 
       <dl className="mt-10 grid grid-cols-2 gap-x-4 gap-y-2 text-xs opacity-70 sm:grid-cols-4">
         <Stat label="op_log rows" value={String(ops)} />

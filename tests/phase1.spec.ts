@@ -35,3 +35,28 @@ test('the editor holds up at 5,000 words with a full cast highlighted', async ({
     .toBeLessThan(result.wholeDocP50);
   expect(result.measurements.filter((m) => m.pass === false).map((m) => `${m.label}: ${m.value}`)).toEqual([]);
 });
+
+test('a project exports and restores, and a damaged archive still restores most of it', async ({ page }) => {
+  await gotoApp(page);
+
+  // Clean round trip first: everything comes back.
+  const clean = await page.evaluate(() => window.backupRoundTrip('backup-clean', 'none')) as Record<string, unknown>;
+  expect(clean, JSON.stringify(clean)).toMatchObject({
+    ok: true, emptyBefore: 0, skipped: 0, scenesAfter: 12,
+    projectTitle: 'The Grey Warden', firstScene: 'Scene 0 prose.',
+  });
+  expect(clean.problems).toEqual([]);
+
+  // One corrupted line: that row is lost, everything else survives. This is the
+  // whole reason the archive is newline-delimited rather than one JSON document.
+  const corrupt = await page.evaluate(() => window.backupRoundTrip('backup-corrupt', 'corrupt-line')) as Record<string, unknown>;
+  expect(corrupt).toMatchObject({ ok: true, projectTitle: 'The Grey Warden' });
+  expect(corrupt.applied as number).toBeGreaterThan(10);
+  expect((corrupt.problems as string[]).some((p) => /not valid JSON/.test(p))).toBe(true);
+
+  // Truncated mid-write: the head is still readable and restores.
+  const cut = await page.evaluate(() => window.backupRoundTrip('backup-cut', 'truncate')) as Record<string, unknown>;
+  expect(cut).toMatchObject({ ok: true, projectTitle: 'The Grey Warden' });
+  expect(cut.applied as number).toBeGreaterThan(0);
+  expect((cut.problems as string[]).some((p) => /truncated/.test(p))).toBe(true);
+});
