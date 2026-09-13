@@ -4,7 +4,7 @@
 
 | Decision | Choice | Why |
 |---|---|---|
-| Code sharing | **React + TypeScript + Vite, wrapped by Capacitor** | One UI, one data layer, ships as an installable PWA and a real Play Store APK. Keeps us in the JS/TS ecosystem where the editor (ProseMirror) and AI SDKs live. |
+| Code sharing | **React + TypeScript + Vite, wrapped by Capacitor** | One UI, one data layer, ships as an installable PWA and a sideloaded Android APK ([D7](10-decisions.md)). Keeps us in the JS/TS ecosystem where the editor (ProseMirror) and AI SDKs live. |
 | Source of truth | **Local-first SQLite on device** | Works offline, no hosting, no content liability, no account wall. The manuscript never leaves the device unless the writer exports or sends it to a provider. |
 | AI access | **Writer's own API key, called directly** | No proxy to pay for or police. Local models drop into the same adapter. |
 | Sync | **Not in v1, but schema is sync-ready** | `rev`, soft deletes and `op_log` from the first commit. Optional sync later is a feature, not a rewrite. |

@@ -126,6 +126,12 @@ exist to protect a publisher from an unknown user; with one known user
 hard floor above is unaffected** — it isn't a distribution requirement, it's the
 project's own premise: novels of every kind, without being illegal.
 
+The prompt injection is the *weakest* enforcement of these three. The real
+mechanism is structural and runs before any request is built: `entity.maturity`
+and `entity.is_real_person` are checked against the scene's cast and register, and
+a violating run is **blocked** rather than sent. See
+[doc 13](13-legal-and-compliance.md) for the full design.
+
 Note honestly in the UI: the *provider* also has a policy. When OpenRouter or a
 given model refuses, LoreScribe reports the refusal as a provider refusal
 (`ai_run.status = 'refused'`) rather than silently degrading, and suggests either

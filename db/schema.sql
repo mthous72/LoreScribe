@@ -69,7 +69,7 @@ CREATE TABLE scene (
   global_rank TEXT NOT NULL,         -- materialised part|chapter|scene sort keys
   summary     TEXT,                  -- rolling compression level 1
   purpose     TEXT,                  -- what this scene must accomplish
-  pov_entity_id  TEXT REFERENCES entity(id),
+  pov_entity_id  TEXT REFERENCES entity(id),  -- AUTHORED. mention(role='pov') is derived from it.
   pov_mode    TEXT,                  -- first|close_third|third|omniscient
   tense       TEXT,                  -- past|present
   location_entity_id TEXT REFERENCES entity(id),
@@ -93,6 +93,10 @@ CREATE TABLE scene_version (
   origin     TEXT NOT NULL,          -- manual|ai_draft|ai_revision|import
   ai_run_id  TEXT REFERENCES ai_run(id),
   content_json TEXT, content_text TEXT, word_count INTEGER,
+  -- Span-level authorship lives as an 'origin' mark inside content_json
+  -- (human|ai_draft|ai_revised|human_revised_ai). This is the rollup, for the
+  -- disclosure export (docs/13): {"human": n, "ai_draft": n, ...} in words.
+  provenance_json TEXT,
   is_active  INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
@@ -123,6 +127,10 @@ CREATE TABLE entity (
   attributes  TEXT,                  -- JSON, validated against type schema
   importance  TEXT DEFAULT 'minor',  -- protagonist|major|minor|background
   status      TEXT,                  -- alive|dead|destroyed|unknown ...
+  -- Compliance fields the hard floor reads BEFORE a call is made (docs/13).
+  -- Species-independent: a 200-year-old elf child is still a minor.
+  maturity    TEXT NOT NULL DEFAULT 'unknown',  -- adult|minor|unknown|n_a
+  is_real_person INTEGER NOT NULL DEFAULT 0,
   first_scene_id TEXT REFERENCES scene(id),
   portrait_uri TEXT, colour TEXT,
   book_scope_id TEXT REFERENCES book(id),  -- NULL = whole series
@@ -325,8 +333,25 @@ CREATE TABLE provider_account (
   base_url TEXT,
   credential_ref TEXT,               -- keystore handle; NEVER the key itself
   capabilities_json TEXT,
+  -- Data-handling preference sent as routing constraints where the provider
+  -- supports it (OpenRouter: deny providers that may train on inputs). docs/13.
+  data_policy TEXT NOT NULL DEFAULT 'no_training',  -- no_training|zero_retention|any
   active INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+
+-- What each upstream provider's usage policy permits, with a link and a date.
+-- Compliance is routing content only where it is allowed -- never circumventing
+-- a provider's safeguards. A stale row (last_checked old) shows a warning. docs/13.
+CREATE TABLE provider_policy (
+  provider_key TEXT PRIMARY KEY,     -- e.g. 'anthropic', 'openai', 'meta-llama', 'local'
+  policy_url TEXT,
+  max_register INTEGER,              -- highest prose register this policy permits (1-5)
+  allows_graphic_violence INTEGER,
+  trains_on_inputs INTEGER,          -- NULL = unknown
+  zero_retention_available INTEGER,
+  notes TEXT,
+  last_checked INTEGER NOT NULL
 );
 
 CREATE TABLE model_profile (         -- a named role the app calls
@@ -371,7 +396,10 @@ CREATE TABLE ai_run (
   budget_escalations INTEGER DEFAULT 0,
   sanitizer_actions TEXT,            -- JSON list of deterministic repairs applied
   retry_of_run_id TEXT REFERENCES ai_run(id),  -- regenerate-with-violations-named
-  status TEXT,                       -- ok|error|cancelled|refused|truncated
+  status TEXT,                       -- ok|error|cancelled|refused|truncated|blocked
+  -- 'blocked' = the hard floor stopped it BEFORE the call; 'refused' = provider.
+  served_by TEXT,                    -- the upstream provider that actually handled it
+  block_reason TEXT,
   error_text TEXT,
   accepted INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL

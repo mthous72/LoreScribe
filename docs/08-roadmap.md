@@ -23,7 +23,8 @@ kills it. Nothing before Phase 2 should take longer than it has to.
 - `navigator.storage.persist()` on first project creation, with the result surfaced
   honestly rather than assumed.
 - Repository layer and the `op_log` write path.
-- Vitest, Playwright, CI, lint/format.
+- Vitest, Playwright, CI, lint/format, and a dependency-licence allowlist check
+  ([doc 13 §4](13-legal-and-compliance.md)).
 - **Done when:** a project can be created, persisted and reloaded after a refresh.
 
 ## Phase 0b — Implement the specified algorithms *(~1 week, runs alongside Phase 1)*
@@ -100,7 +101,11 @@ never contains a proper noun, and staggered fragments merge into one phrase.
 - Injection phase; budget protection for `must` laws.
 - Verification phase: regex, heuristic, then rubric checks.
 - Inline violation UI, targeted auto-revise, amend-the-law flow.
-- System hard-floor laws and the provider-refusal reporting path.
+- System hard-floor laws, enforced **structurally** — `entity.maturity` and
+  `is_real_person` checked against cast and register before the call
+  ([doc 13](13-legal-and-compliance.md)) — plus the provider-refusal reporting path.
+- `provider_policy` registry and the register-dial warning that consults it.
+- Span-level `origin` marks in the editor, with the provenance rollup.
 - IP category: trait-based style rewriting, protected-property warnings.
 
 ## Phase 4 — Planning *(~3 weeks)*
@@ -173,6 +178,9 @@ doesn't have (see [doc 07 §E](07-suggestions-backlog.md)).
 ## Later
 Series bible, maps, image generation, publishing helpers, plugins. Sync service
 only if the single-device assumption ever breaks.
+
+**Total: ~18 weeks at full-time pace** (0b overlaps 1). At evenings-and-weekends
+pace, treat Phase 1 as the thing to cut down, not the phases after it.
 
 ---
 

@@ -109,13 +109,15 @@ the writing; it never becomes part of the world.
 
 | Section | Default share |
 |---|---|
-| Laws (must) | never trimmed |
+| Laws (must) + negative constraints | never trimmed |
 | Beat targets | never trimmed |
+| Repetition ban list | never trimmed (capped by construction, §1 of doc 12) |
+| Reference band | 8%, **reserved first** so canon can't crowd it out |
 | POV + cast dossiers | 25% |
-| Facts | 20% |
-| Continuity ladder | 25% |
-| Style exemplars | 10% |
-| Semantic supplement | 10% |
+| Facts | 18% |
+| Continuity ladder | 24% |
+| Style exemplars | 8% |
+| Semantic supplement (canon band only) | 7% |
 | Headroom for output | 10% |
 
 Trimming is by priority within each section (importance, spoiler weight, recency),

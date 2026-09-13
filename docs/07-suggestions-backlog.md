@@ -38,12 +38,10 @@ is won or lost; the last is genuinely optional.
 7. **Export.** EPUB, DOCX, Markdown, plain text, PDF; plus a full project export
    as a single portable `.lorescribe` archive (JSON + media). Local-first means
    nothing if the data is trapped.
-8. **Import.** Plain text/Markdown/DOCX with chapter detection, and — deliberately
-   — Scrivener `.scrivx`, NovelCrafter/Campfire, **SillyTavern character cards and
-   World Info, KoboldAI World Info**, and `.libriscribe.json` bundles. Format
-   auto-detected, with an AI-mapping pass for unknown shapes, everything landing in
-   the same proposal-review panel. Meeting writers where their existing 80k words
-   already live is the difference between a trial and a migration.
+8. **Import.** `.libriscribe.json` bundles (Phase 1, [D5](10-decisions.md)) and
+   plain text/Markdown/DOCX with chapter detection. Anything else — Scrivener,
+   SillyTavern, KoboldAI — only if you personally have such files (§F). Everything
+   lands in the same proposal-review panel.
 8b. **Bring-your-own reference material.** Import PDF/TXT/Markdown, and scanned
    documents via OCR, as a non-canon source band that grounds generation, is
    retrieved into its own reserved context slice, and is excluded from exports.

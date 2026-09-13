@@ -17,6 +17,7 @@ Read in order:
 | [10 — Decision log](10-decisions.md) | D1–D9: the founding choices and why |
 | [11 — novelWriter review](11-novelwriter-review.md) | What to take from `saga-soft/novelWriter` — storage robustness and role-typed references |
 | [12 — Algorithm specs](12-algorithms.md) | **The implementation reference.** Behaviour specs for the non-obvious algorithms, written to be built from scratch |
+| [13 — Legal & compliance](13-legal-and-compliance.md) | Six exposure surfaces and the mechanism for each — routing, structural floor, provenance, dependency licences, real people, data handling |
 
 **If you read one thing:** doc 03. It's the product.
 **If you read two:** doc 09 — it changes parts of 01, 03, 04, 07 and 08.

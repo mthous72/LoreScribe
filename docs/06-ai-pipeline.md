@@ -69,6 +69,12 @@ already describes: smaller context (the budget allocator handles it), unreliable
 tool-calling and JSON mode (fall back to a parse-with-repair path), and different
 tokenisation (per-provider `countTokens`).
 
+Because the app is a browser page ([D8](10-decisions.md)), the local server must
+allow browser origins: Ollama needs `OLLAMA_ORIGINS` set to the app's origin,
+LM Studio has a CORS toggle, llama.cpp server takes `--api-cors`. Document the
+three one-liners in the provider setup screen rather than letting the user hit an
+opaque preflight failure.
+
 On Android, "local" also means a discovered endpoint on the LAN — a desktop
 running Ollama, reachable from the phone. That is a far more realistic path to
 local inference on mobile than on-device 7B weights, and it needs nothing but a
