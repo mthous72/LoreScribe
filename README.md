@@ -13,3 +13,9 @@ which is the core of the system. The draft database schema is
 **Shape of the thing:** React + TypeScript + Capacitor (one codebase → PWA and
 Android APK), local-first SQLite, the writer's own API key called directly
 (OpenRouter first, OpenAI-compatible local endpoints next). Status: planning.
+
+LoreScribe is the successor to [LibriScribe](https://github.com/mthous72/libriscribe)
+— see the [review](docs/09-libriscribe-review.md) of what carries over and the
+[parity bar](docs/08-roadmap.md) it has to clear first. It's built as a personal
+tool and isn't distributed; LibriScribe stays where it is for anyone already using
+it. Founding decisions are logged in [doc 10](docs/10-decisions.md).

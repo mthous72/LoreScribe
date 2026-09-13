@@ -97,13 +97,32 @@ is won or lost; the last is genuinely optional.
 ## D. Later / optional
 
 27. Map support: upload an image, pin locations, link pins to entities.
-28. Beta-reader mode: a read-only share link with inline reaction/comment capture.
-29. Collaboration (co-authors, shared codex) — needs the sync server.
-30. Image generation for character portraits and scene mood boards.
-31. On-device inference for small models.
-32. Publishing helpers: query letter, synopsis (one-page and long form), blurb,
-    comp-title suggestions, series bible export for an editor.
-33. Plugin/skill system so writers can add their own analysis passes.
+28. Image generation for character portraits and scene mood boards.
+29. On-device inference for small models.
+30. Publishing helpers: query letter, synopsis, blurb, comp titles, series bible
+    export for an editor.
+31. Plugin/skill system for your own analysis passes.
+
+## F. Cut by the personal-tool decision ([D7](10-decisions.md))
+
+Not "later" — **not planned**, unless the decision changes. Recorded so they don't
+quietly creep back in:
+
+- Play Store presence, signing and release pipeline (Android builds are sideloaded).
+- Onboarding flows, first-run tutorials, marketing surfaces.
+- Beta-reader share links and collaboration/co-author modes (both need a server).
+- Accounts, auth, hosted sync as a product. The schema stays sync-*ready*
+  ([D2](10-decisions.md)); nobody is building the service.
+- Broad third-party importers beyond LibriScribe and plain prose. SillyTavern and
+  KoboldAI import stay on the list only if you personally have such files —
+  otherwise they were an interop play for other people's users.
+- Support-grade error handling and docs. Developer-grade is fine; you're the one
+  reading the stack trace.
+
+**Explicitly not cut:** the hard content floor, the `ip` laws, and backup/export.
+The first two are the project's premise rather than distribution compliance, and
+the third is the only thing standing between you and total loss
+([D9](10-decisions.md)).
 
 ## E. Deliberately not doing
 

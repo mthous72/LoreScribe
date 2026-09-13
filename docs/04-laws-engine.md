@@ -116,10 +116,15 @@ ceiling; the system floor sets the only thing below it.
 **The user-facing control is a register dial, not a checklist.** A 1–5 prose
 register (restrained → suggestive → frank → graphic → unrestrained) is far easier
 to set than a pile of toggles, and it maps onto scoped `content` laws underneath.
-It is off unless enabled, gated behind an explicit opt-in and age affirmation, and
-it is honestly a *generation steer only* — it changes the prompt, it does not
-filter model output. Per-topic laws remain available for writers who want a
-specific rail ("violence stays off-page") independent of overall register.
+It is honestly a *generation steer only* — it changes the prompt, it does not filter
+model output. Per-topic laws remain available for a specific rail ("violence stays
+off-page") independent of overall register.
+
+LibriScribe gates its equivalent behind an opt-in and an age affirmation. Those
+exist to protect a publisher from an unknown user; with one known user
+([D7](10-decisions.md)) they are friction, so the dial is simply a setting. **The
+hard floor above is unaffected** — it isn't a distribution requirement, it's the
+project's own premise: novels of every kind, without being illegal.
 
 Note honestly in the UI: the *provider* also has a policy. When OpenRouter or a
 given model refuses, LoreScribe reports the refusal as a provider refusal

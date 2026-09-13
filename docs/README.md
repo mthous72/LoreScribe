@@ -14,6 +14,8 @@ Read in order:
 | [07 — Suggestions](07-suggestions-backlog.md) | Everything else worth building, ranked |
 | [08 — Roadmap](08-roadmap.md) | Phased plan, product rules, sequencing |
 | [09 — LibriScribe review](09-libriscribe-review.md) | What to take from `mthous72/libriscribe`, what to leave, and why this is a new app rather than a refactor |
+| [10 — Decision log](10-decisions.md) | D1–D9: the founding choices and why |
 
 **If you read one thing:** doc 03. It's the product.
 **If you read two:** doc 09 — it changes parts of 01, 03, 04, 07 and 08.
+**Before building:** doc 10, then the `opfs-sahpool` spike at the top of Phase 0.

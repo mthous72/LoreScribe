@@ -47,10 +47,37 @@ on Android both speak SQLite, so Drizzle sits over a thin `SqlDriver` interface
 with two implementations. Migrations are plain numbered `.sql` files applied in a
 transaction at startup. Consequences worth knowing up front:
 
-- OPFS requires cross-origin isolation headers (`COOP`/`COEP`) on the web build.
-- Web workers: run SQLite in a worker so long queries don't jank the editor.
+- Run SQLite in a web worker so long queries don't jank the editor.
 - Large prose blobs are fine in SQLite; media (portraits, maps) go to OPFS /
   Capacitor Filesystem with only a URI in the row.
+
+### Hosting and the cross-origin-isolation trap
+
+The app is served as a static PWA (GitHub Pages is the obvious host — the app is
+just code, the data never leaves the device). Static hosts **cannot set response
+headers**, and the SharedArrayBuffer-based OPFS VFS requires cross-origin isolation
+(`COOP: same-origin`, `COEP: require-corp`) because it uses `Atomics.wait` in a
+worker. So that VFS is unavailable.
+
+The intended path is the **`opfs-sahpool` VFS**, which uses a pre-opened pool of
+sync access handles and needs no cross-origin isolation. **This is the first Phase 0
+spike** — it gates the storage layer, so confirm it before building on it. Fallbacks
+in order: a service-worker COI shim, then revisiting the no-desktop-wrapper decision
+(a Tauri shell has no such constraint).
+
+### Storage durability — the one real risk of local-first
+
+OPFS and IndexedDB are **evictable**. The browser may reclaim them under storage
+pressure, and the thing at stake is an entire novel. There is no server copy,
+because that was the point. So:
+
+- Call `navigator.storage.persist()` when the first project is created, and show
+  the writer the honest answer if it's refused rather than assuming success.
+- **Scheduled automatic backup export is a Phase 1 requirement, not a backlog
+  item.** An evicted database with no recent export is total loss.
+- Android keeps Capacitor specifically for this: native SQLite writes to
+  app-private storage, which is not evictable. That is the only reason Capacitor
+  survives in a project that ships to no store.
 
 ## Provider abstraction
 
