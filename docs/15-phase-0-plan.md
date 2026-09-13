@@ -104,9 +104,27 @@ middle of Phase 1.
 
 **c. `project_lock` has a heartbeat but no defined lease.** The column exists;
 the semantics don't. Unspecified, it becomes whatever the first implementation
-happened to do. **Fix:** specify it in Gate A — heartbeat interval, staleness
-threshold, what a takeover actually does to the other tab, and what happens if
-the holder's clock is wrong.
+happened to do.
+
+**Fix, and it's simpler than it looked** — see §7, which settles two things. The
+Web Locks spec *guarantees* that a terminated agent's locks are released ("For
+each lock lock with agent equal to agent: Release the lock"), so crash recovery
+does not need a heartbeat at all. But the API has **no mechanism to tell a holder
+that someone else is waiting** — that has to be built on BroadcastChannel. So the
+two layers divide like this:
+
+- **Web Locks is the liveness mechanism.** Exclusive lock per project id.
+  Crash, kill and tab-close are handled by the spec, for free.
+- **`project_lock` is the diagnostic and UI layer**, not the lock. It holds the
+  human-readable label the takeover screen needs, and a stale row on open is
+  evidence of an unclean shutdown — useful, but not the thing granting access.
+- **BroadcastChannel carries the handoff**: tab B asks, tab A flushes and
+  releases, tab B acquires. `steal: true` exists as the deadlock escape hatch and
+  is *not* ordinary flow control — the spec is explicit that a stolen holder's
+  callback keeps running with no exclusivity guarantee, which is exactly the
+  situation that corrupts a database.
+- Every acquisition carries an `AbortSignal` timeout, and the app never nests
+  lock acquisitions, because out-of-order nesting across tabs deadlocks.
 
 **d. "Capacitor initialised" in Phase 0 contradicts the phase's own done-when.**
 Doc 08 has Capacitor initialised in Phase 0 and the Capacitor SQLite driver in
@@ -164,6 +182,9 @@ fixed or recorded as an accepted deviation with a reason.
 | Longest main-thread block while typing | < 50 ms | Dropped frames are the thing users feel |
 | DB size at 150k words, 5 versions/scene | measured | Feeds capacity planning; no target, just the truth |
 | Pool capacity consumed at that size | measured | The R2 answer |
+| `persist()` granted? | measured, desktop **and** phone | Heuristic and undocumented since 2020 (§7). The answer decides how hard D9's backup has to work |
+| Handles survive 10 min backgrounded | pass | The R2b answer, and the one that can move Capacitor into this phase |
+| Survives a hard kill mid-write | pass, no corruption | The durability claim the whole local-first bet rests on |
 
 One sizing note worth having before the run: at 150k words the prose is under a
 megabyte, and the largest table in the finished product is likely to be
@@ -240,3 +261,100 @@ algorithms — that is Phase 0b, and it runs alongside Phase 1.
   changes arrive as 002 (R8).
 - **Commit at each gate**, with the spike report as its own commit, so a red Gate
   A is a readable historical record rather than something to be embarrassed about.
+
+---
+
+## 7. Verified facts this plan now rests on
+
+Checked against primary sources rather than recalled, because a wrong one here
+costs a week. Everything below is recorded in [doc 14](14-references.md) at the
+appropriate honesty tier; anything that could *not* be verified is named as such.
+
+### The two-driver architecture is vindicated, not merely assumed
+
+There was always a tempting simplification available: use
+`@capacitor-community/sqlite` for *both* platforms and have one driver instead of
+two. It is a trap, and now there's a reason on file rather than a preference.
+
+The plugin's **web implementation is sql.js — the whole database in RAM —
+serialised to IndexedDB through a `jeep-sqlite` web component**, and a committed
+transaction **is not durable until the app explicitly calls `saveToStore()`**.
+Native persists automatically; web does not. So the same repository code, written
+once and run both ways, silently loses data on exactly one of them. On top of
+that, every save re-serialises the entire database, and memory scales with file
+size — at the 50–100 MB this project expects (§4), that is an architectural
+ceiling rather than a tuning problem.
+
+So: **`@sqlite.org/sqlite-wasm` over OPFS on the web, the Capacitor plugin only
+on native**, which is what [doc 01](01-architecture.md) already said. What
+changes is that the `SqlDriver` conformance suite (Gate B) is now clearly
+load-bearing rather than tidy-minded — the two engines genuinely differ, and the
+suite is the thing that keeps the difference from reaching the repository layer.
+
+### Eviction on Chromium is less frightening than D9 assumed
+
+[D9](10-decisions.md) treats browser storage as evictable, and it is — but the
+documented conditions are narrower than the worst case that decision was written
+against:
+
+- Per-origin quota is **up to 60% of total disk**; IndexedDB, Cache and **OPFS
+  all draw on one shared pool**, so OPFS gets no separate budget.
+- Eviction happens on **storage pressure** or when all origins exceed a
+  browser-wide 80% cap. It is **LRU across origins, all-or-nothing per origin**,
+  and it **skips origins in persistent mode**.
+- **Chrome does not proactively evict unused origins.** Safari does — script-
+  writable storage after 7 days without interaction — which is one more reason
+  [D13](10-decisions.md)'s Chromium scoping is doing real work.
+
+None of this makes backup optional; D9's conclusion stands and storage pressure
+is genuinely more common on a phone. But the realistic failure mode is a full
+device, not idle decay, and a granted `persist()` covers it.
+
+*Granted* is the operative word. Chrome decides by heuristics and never prompts —
+site engagement, whether the app is installed or bookmarked, notification
+permission — and **the canonical documentation of those heuristics dates from
+2020 and could not be confirmed against a current first-party source.** So the
+engineering stance is the one that survives being wrong about it: call
+`persist()`, record the boolean, show the writer the honest answer, and let
+[D9](10-decisions.md)'s scheduled backup carry the case where it's `false`.
+Whether it is granted in practice is itself a Gate A measurement, on both
+desktop and the phone, rather than an assumption.
+
+Two implementation consequences: **`persist()` is not available in Web Workers**
+and must be called from the main thread (`estimate()` is fine in a worker), and
+`estimate()`'s figures are padded for privacy, so they are a signal and not an
+accounting record.
+
+### Web Locks is a spec guarantee, with one real gap
+
+Baseline since March 2022, works in workers and service workers, scoped
+per-origin across every tab. Termination releases held locks *and* drops queued
+requests, per spec. The gap is cooperative handoff — there is no way to be told
+someone wants your lock — and it is designed in, not an oversight. §3c above is
+built around both facts.
+
+### Capacitor, for when Phase 6 arrives
+
+Capacitor 8 (min **API 24**, comfortably under [D13](10-decisions.md)'s API 31
+target) still documents "one build, served as a website and wrapped as an APK" as
+first-class. Tauri v2 does have mobile targets now, but **no first-party PWA story
+could be found either way** — which sharpens [D8](10-decisions.md)'s fallback
+ladder: falling back to a native shell may mean giving up the PWA, not keeping
+both. Worth knowing before Gate A's stop rule is ever invoked.
+
+Two Phase 6 items found early, both durability-relevant enough to record now:
+
+- **Android Auto Backup can restore a stale database over a live one.** The
+  plugin requires `android:allowBackup="false"` plus a `data_extraction_rules.xml`
+  excluding the database domain. Skip it and the bug reproduces only on real
+  upgrade and device-transfer paths — never in development. This is a
+  [D9](10-decisions.md) data-loss vector hiding in a manifest file.
+- The plugin **links SQLCipher even for unencrypted databases**, which carries a
+  US export self-classification question. Moot under [D7](10-decisions.md) while
+  nothing is published, and [D12](10-decisions.md) means we aren't using the
+  encryption — but it belongs in [doc 13](13-legal-and-compliance.md) rather than
+  being rediscovered later.
+- Native storage lands in the app-private databases directory: not quota-evictable
+  and not touched by "clear cache", though "clear storage" and uninstall still
+  remove it. That is the property [D9](10-decisions.md) keeps Capacitor for, now
+  confirmed.

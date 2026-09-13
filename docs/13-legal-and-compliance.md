@@ -148,6 +148,15 @@ Allowlist: MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, Unlicense, CC0, and public domai
 (sqlite-wasm). Anything else fails the build until someone looks at it. The planned
 stack is clean: Tiptap, Capacitor, React (MIT); Drizzle, Tesseract.js (Apache-2.0).
 
+**One encryption-export wrinkle, recorded early so it isn't rediscovered.**
+`@capacitor-community/sqlite` links SQLCipher into the Android build **even when
+no database is encrypted**, and its own README raises the resulting US export
+self-classification question. Three things make this a note rather than a
+problem: nothing is published ([D7](10-decisions.md)), the encryption is not used
+([D12](10-decisions.md)), and the plugin doesn't enter the build until Phase 6.
+It becomes live only if the tool is ever distributed — which is precisely the
+decision that would reopen half this document anyway.
+
 ## 5. Real people
 
 The floor blocks sexual content involving real people. Everything else about real
