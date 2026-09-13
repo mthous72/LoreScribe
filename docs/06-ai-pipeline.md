@@ -54,7 +54,9 @@ versioned so a change can be compared against the previous version's outputs.
 ## Cost and token discipline
 
 - Live token meter on the brief before sending, broken down by section.
-- Per-run cost recorded; per-project and per-day spend meters; optional hard cap.
+- Per-run cost recorded; per-project and per-day spend meters. Default caps
+  ([D17](10-decisions.md)): a **$5/day warning**, a **$20/day hard stop**, both
+  per-project and adjustable in one tap — a runaway-loop guard, not a real budget.
 - Summaries are cached and invalidated only when the underlying scene changes —
   the continuity ladder should cost nothing on a typical run.
 - Utility roles default to a cheap model; the app suggests the split on first run.

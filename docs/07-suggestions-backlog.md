@@ -88,8 +88,11 @@ is won or lost; the last is genuinely optional.
 23. Split view: prose on one side, codex entry or outline on the other.
 24. Keyboard-first navigation and a command palette.
 25. Mobile-specific: quick-capture (jot an idea into the project inbox), offline
-    read-through, voice dictation into a scene. Assume phone = capture and
-    review, desktop = drafting; don't try to make thumb-typing 2000 words good.
+    read-through, voice dictation into a scene. **Superseded by [D15](10-decisions.md):**
+    real drafting happens on both surfaces roughly evenly, so the phone editor is
+    not a lightweight afterthought — full scene editing, the brief inspector, and
+    generation all need to work well at phone width from Phase 1 on. Quick-capture
+    and dictation remain useful additions on top of that, not a substitute for it.
 26. Encrypted local backup + scheduled export to the user's own cloud folder.
 
 ## D. Later / optional

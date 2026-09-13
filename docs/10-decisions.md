@@ -215,3 +215,56 @@ force-push or a deletion commit — assume anything pushed is permanently public
   (fixtures, personal backups, drafts), that's a separate, private repository —
   never a private branch or a "we'll clean it up before merging" branch of this
   one.
+
+### D15 — The mobile editor is not a lightweight capture tool; it's a full peer
+Superseded assumption: doc 07 item 25 originally planned phone = capture and
+review, desktop = drafting, on the reasoning that thumb-typing 2000 words isn't
+worth optimising for. Drafting in practice happens on both surfaces roughly
+evenly, so that assumption is wrong and the plan changes with it: the phone
+editor gets full investment from **Phase 1**, not a stripped-down mode added
+later in Phase 6. Scene editing, the brief inspector, and generation all need to
+work well at phone width from the start — this was already a responsive-design
+requirement everywhere else in the plan; it now also applies to feature
+completeness, not just layout.
+
+### D16 — Desktop gets no dedicated QA matrix; the storage spike still must hold
+Two of the round's answers only look contradictory: drafting happens on both
+surfaces (D15), but desktop is explicitly *not* a testing target (D13's own
+wording). The resolution is a distinction between **where writing happens** and
+**where reliability is verified before shipping**:
+
+- Android is the release gate: real-device testing (a physical phone is
+  available — see below), every feature checked there before it's considered
+  done.
+- Desktop/web is used for real drafting, but gets no dedicated cross-browser QA
+  pass, no compatibility matrix, and issues specific to it are fixed reactively
+  as they turn up rather than pre-empted.
+
+**That distinction cannot extend to the Phase 0 storage spike itself.** The
+`opfs-sahpool` VFS and the multi-tab lock ([D8](10-decisions.md),
+[doc 11](11-novelwriter-review.md)) are exactly the mechanism protecting real
+manuscripts from silent loss, and if desktop drafting is real and regular, that
+spike has to be validated against whatever browser actually does the drafting —
+skipping it there would be the one silent-failure mode D9/D14 exist to prevent,
+not a QA nicety to skip. Absent a named browser, **Chrome is the assumed
+validation target** — the same Chromium family D13 already called the safer bet,
+and the single most likely daily browser. This is a stated assumption, not a
+confirmed fact: if the real daily browser turns out to be something else, say so
+before Phase 0's spike runs, since that one validation is load-bearing in a way
+the rest of desktop support isn't.
+
+**Android testing is against a real device.** A physical phone is available, so
+Phase 6 targets it directly rather than an emulator-first plan — more honest
+about real eviction pressure, battery and OS behaviour than an emulator can be.
+
+### D17 — Default spend cap: conservative, visible, adjustable — not a real budget
+An OpenRouter account and key are already in hand, with no fixed budget opinion,
+so the app picks a conservative default rather than leaving the field blank:
+a **$5/day soft warning** and a **$20/day hard stop**, both per-project, both
+editable in one tap from the spend meter that triggered them. This is a
+runaway-loop guard, not a real budget — it exists so a retry bug or an
+oversized batch extraction fails loudly and cheaply instead of quietly running
+up a bill, and it is expected to be raised the first time it gets in the way of
+legitimate work. Utility roles (summarise, extract, critique, embed) default to
+the cheapest capable model on first run, per [doc 06](06-ai-pipeline.md); drafting
+does not, since quality there is the whole point.
