@@ -178,6 +178,37 @@ export function keysBetween(before: string | null, after: string | null, n: numb
   ];
 }
 
+/**
+ * Is this a key this module produced?
+ *
+ * Exported so callers can assert it rather than assuming. Two encodings for one
+ * column already happened once — the spike corpus minted zero-padded integers
+ * while the domain module produced these — and the two sort differently, so
+ * whichever was written second would have quietly reordered the manuscript.
+ */
+export function isValidKey(key: string): boolean {
+  try { validate(key); return true; } catch { return false; }
+}
+
+/** Does this look like `globalRank()` made it? */
+export function isValidGlobalRank(rank: string): boolean {
+  let i = 0;
+  let segments = 0;
+  while (i < rank.length) {
+    if (i + 2 > rank.length) return false;
+    const hi = DIGITS.indexOf(rank[i]!);
+    const lo = DIGITS.indexOf(rank[i + 1]!);
+    if (hi < 0 || lo < 0) return false;
+    const len = hi * DIGITS.length + lo;
+    const key = rank.slice(i + 2, i + 2 + len);
+    if (key.length !== len) return false;
+    if (len > 0 && !isValidKey(key)) return false;
+    i += 2 + len;
+    segments += 1;
+  }
+  return segments > 0;
+}
+
 /** The first key in an empty list. */
 export function firstKey(): string { return keyBetween(null, null); }
 

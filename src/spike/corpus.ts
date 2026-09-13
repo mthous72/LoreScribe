@@ -1,3 +1,5 @@
+import { firstKey, initialKeys, globalRank } from '../domain/sortKey';
+
 /**
  * Deterministic synthetic corpus.
  *
@@ -108,7 +110,7 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   });
   head.push({
     sql: `INSERT INTO book (id,project_id,title,sort_key,created_at,updated_at) VALUES (?,?,?,?,?,?)`,
-    params: [bookId, projectId, 'Book One', 'm', now, now],
+    params: [bookId, projectId, 'Book One', firstKey(), now, now],
   });
   batches.push(head);
 
@@ -132,20 +134,25 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
   }
   batches.push(entBatch);
 
-  // Chapters
+  // Chapters. Keys come from the project's own sort-key module rather than
+  // zero-padded integers: the corpus used to mint its own, which meant two
+  // incompatible encodings for the same columns lived in one repository, and
+  // whichever was written second would have mis-ordered the manuscript.
   const chapBatch: { sql: string; params: unknown[] }[] = [];
   const chapterIds: string[] = [];
+  const chapterKeys = initialKeys(spec.chapters);
   for (let i = 0; i < spec.chapters; i++) {
     const id = `ch_${String(i).padStart(4, '0')}`;
     chapterIds.push(id);
     chapBatch.push({
       sql: `INSERT INTO chapter (id,book_id,number,title,sort_key,summary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
-      params: [id, bookId, i + 1, `Chapter ${i + 1}`, String(i).padStart(6, '0'), prose(60), now, now],
+      params: [id, bookId, i + 1, `Chapter ${i + 1}`, chapterKeys[i]!, prose(60), now, now],
     });
   }
   batches.push(chapBatch);
 
   // Scenes, versions, mentions, FTS
+  const sceneKeys = initialKeys(spec.scenes);
   const sceneIds: string[] = [];
   const probeTerms = new Set<string>();
   let totalWords = 0;
@@ -155,7 +162,8 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
     const b: { sql: string; params: unknown[] }[] = [];
     const id = `sc_${String(i).padStart(5, '0')}`;
     sceneIds.push(id);
-    const chapterId = chapterIds[Math.floor(i / (spec.scenes / spec.chapters))] ?? chapterIds[0]!;
+    const chapterIndex = Math.min(spec.chapters - 1, Math.floor(i / (spec.scenes / spec.chapters)));
+    const chapterId = chapterIds[chapterIndex] ?? chapterIds[0]!;
     const body = prose(spec.wordsPerScene);
     totalWords += spec.wordsPerScene;
     if (i % 40 === 0) probeTerms.add(body.split(' ')[3]!.toLowerCase().replace(/\W/g, ''));
@@ -169,7 +177,11 @@ export function buildCorpus(spec: CorpusSpec = DEFAULT_SPEC): Corpus {
       sql: `INSERT INTO scene (id,chapter_id,title,sort_key,global_rank,summary,purpose,pov_entity_id,
               tension,word_count,status,content_text,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      params: [id, chapterId, `Scene ${i + 1}`, String(i).padStart(6, '0'), String(i).padStart(9, '0'),
+      params: [id, chapterId, `Scene ${i + 1}`, sceneKeys[i]!,
+        // The materialised part|chapter|scene triple, from the one function
+        // that knows how to build it. There is no part level here, so the
+        // book's key stands in for it.
+        globalRank([firstKey(), chapterKeys[chapterIndex]!, sceneKeys[i]!]),
         prose(30), prose(12), entityIds[i % 4]!, Math.floor(r() * 11), spec.wordsPerScene, 'drafted', text, now, now],
     });
     b.push({
