@@ -460,14 +460,21 @@ CREATE TABLE index_state (
   last_error TEXT
 );
 
--- Single-writer lock. The opfs-sahpool VFS takes exclusive sync access handles,
--- so a second tab on the same project fails at the storage layer with an opaque
--- error. Claim the lock with a heartbeat and show a real "open elsewhere" screen.
-CREATE TABLE project_lock (
-  project_id TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
-  holder_id TEXT NOT NULL,           -- tab/device identifier
+-- One database, one writer. Scoped to the FILE, not to a project, because the
+-- file is what is contended: opfs-sahpool pre-opens every handle in its pool,
+-- so a second context is refused before it can reach any individual project.
+-- The previous project_lock modelled a granularity the storage engine does not
+-- have, and its foreign key made it unwritable before a project existed.
+--
+-- This row does NOT grant access. Web Locks does that (src/lock/databaseLock.ts),
+-- and the losing context cannot read this table anyway — it has no database.
+-- What the row is for is the other direction: still being here when a new
+-- session opens is evidence the previous one died without releasing.
+CREATE TABLE session_lock (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  holder_id    TEXT NOT NULL,
   holder_label TEXT,                 -- human-readable, for the takeover prompt
-  acquired_at INTEGER NOT NULL,
+  acquired_at  INTEGER NOT NULL,
   heartbeat_at INTEGER NOT NULL
 );
 

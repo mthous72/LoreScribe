@@ -16,6 +16,16 @@ export function uuidv7(now: number = Date.now()): string {
 const DEVICE_KEY = 'lorescribe.device_id';
 
 /**
+ * Identifies THIS tab, for the duration of this page.
+ *
+ * Deliberately not `deviceId()`: that lives in localStorage and is therefore
+ * identical in every tab of the same origin, which makes it useless for telling
+ * two tabs apart. The lock's "ignore my own broadcasts" guard used it and so
+ * the holder never heard the request — the takeover simply timed out.
+ */
+export const sessionId: string = uuidv7();
+
+/**
  * Stable per-device identifier for op_log attribution. localStorage is the right
  * home: it must survive a database wipe, since its job is to distinguish this
  * device's writes from another's if sync is ever built.

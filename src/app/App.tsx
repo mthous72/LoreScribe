@@ -1,6 +1,6 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
 import { DbProvider, useDb } from './DbProvider';
-import { LockedScreen } from './LockedScreen';
+import { LockedScreen, YieldedScreen } from './LockedScreen';
 import { ProjectsPage } from './ProjectsPage';
 import { DiagnosticsPage } from './DiagnosticsPage';
 
@@ -22,7 +22,10 @@ function Shell() {
       </header>
 
       {db.state === 'opening' && <p className="mx-auto max-w-3xl px-4 py-16 text-sm opacity-60">Opening…</p>}
-      {db.state === 'locked' && <LockedScreen retry={db.retry} />}
+      {db.state === 'locked' && (
+        <LockedScreen holderLabel={db.holderLabel} takeOver={db.takeOver} takingOver={db.takingOver} />
+      )}
+      {db.state === 'yielded' && <YieldedScreen retry={db.retry} />}
       {db.state === 'error' && (
         <div className="mx-auto max-w-lg px-4 py-16">
           <h1 className="text-xl font-semibold">Couldn&rsquo;t open the database</h1>

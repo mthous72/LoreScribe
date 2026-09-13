@@ -69,3 +69,35 @@ test('R2b harness — holds one connection and probes it, on a phone-sized scree
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, 'diagnostics page scrolls horizontally at 390px').toBeLessThanOrEqual(0);
 });
+
+test('C5 — a second tab is told who holds the database, and can take it over', async ({ context }) => {
+  // The gap this closes: the lock module existed with zero importers, so what
+  // actually stopped a second tab was the VFS throwing an opaque storage error.
+  const tabA = await context.newPage();
+  await tabA.goto('./');
+  await expect(tabA.getByRole('heading', { name: 'Projects' })).toBeVisible();
+  await tabA.getByLabel('Project title').fill('Held By Tab A');
+  await tabA.getByRole('button', { name: 'Create project' }).click();
+  await expect(tabA.getByText('Held By Tab A')).toBeVisible();
+
+  // Second tab: refused, and told by whom rather than shown a storage error.
+  const tabB = await context.newPage();
+  await tabB.goto('./');
+  await expect(tabB.getByRole('heading', { name: 'Open somewhere else' })).toBeVisible();
+  await expect(tabB.getByText(/another tab/)).toBeVisible();
+
+  // Take over: tab A is asked to yield, closes its handles, releases.
+  await tabB.getByRole('button', { name: 'Take over here' }).click();
+  await expect(tabB.getByRole('heading', { name: 'Projects' })).toBeVisible({ timeout: 30_000 });
+  // The data is intact on the other side of the handover.
+  await expect(tabB.getByText('Held By Tab A')).toBeVisible();
+
+  // And tab A says what happened rather than silently breaking.
+  await expect(tabA.getByRole('heading', { name: 'Handed over' })).toBeVisible();
+
+  // Handing it back works too, which is what makes this a lock and not a coin toss.
+  await tabB.close();
+  await tabA.getByRole('button', { name: 'Take it back' }).click();
+  await expect(tabA.getByRole('heading', { name: 'Projects' })).toBeVisible({ timeout: 30_000 });
+  await expect(tabA.getByText('Held By Tab A')).toBeVisible();
+});
