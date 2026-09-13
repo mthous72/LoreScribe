@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* Phone width is a first-class layout from Phase 0, not a later pass (D15). */
+:root { color-scheme: light dark; }

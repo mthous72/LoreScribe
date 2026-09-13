@@ -1,0 +1,48 @@
+import { NavLink, Route, Routes } from 'react-router-dom';
+import { DbProvider, useDb } from './DbProvider';
+import { LockedScreen } from './LockedScreen';
+import { ProjectsPage } from './ProjectsPage';
+import { DiagnosticsPage } from './DiagnosticsPage';
+
+function Shell() {
+  const db = useDb();
+  return (
+    <div className="min-h-dvh bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      <header className="border-b border-current/10">
+        <nav className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3 text-sm">
+          <span className="font-semibold">LoreScribe</span>
+          <NavLink to="/" className={({ isActive }) => isActive ? 'font-medium' : 'opacity-60'}>
+            Projects
+          </NavLink>
+          <NavLink to="/diagnostics" className={({ isActive }) => isActive ? 'font-medium' : 'opacity-60'}>
+            Diagnostics
+          </NavLink>
+          <span className="ml-auto text-xs opacity-40">phase 0</span>
+        </nav>
+      </header>
+
+      {db.state === 'opening' && <p className="mx-auto max-w-3xl px-4 py-16 text-sm opacity-60">Opening…</p>}
+      {db.state === 'locked' && <LockedScreen retry={db.retry} />}
+      {db.state === 'error' && (
+        <div className="mx-auto max-w-lg px-4 py-16">
+          <h1 className="text-xl font-semibold">Couldn&rsquo;t open the database</h1>
+          <p className="mt-3 text-sm opacity-80">{db.message}</p>
+          <button onClick={db.retry}
+            className="mt-6 rounded-lg border border-current/20 bg-current/10 px-4 py-2 text-sm font-medium">
+            Try again
+          </button>
+        </div>
+      )}
+      {db.state === 'ready' && (
+        <Routes>
+          <Route path="/" element={<ProjectsPage />} />
+          <Route path="/diagnostics" element={<DiagnosticsPage />} />
+        </Routes>
+      )}
+    </div>
+  );
+}
+
+export function App() {
+  return <DbProvider><Shell /></DbProvider>;
+}

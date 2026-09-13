@@ -84,18 +84,28 @@ function pragma(name: string): unknown {
  * docs/15 §3a.
  */
 function applyPragmas(): void {
+  // FIRST. Before foreign_keys, before temp_store, before anything.
+  //
+  // SQLite's WASM build has no shared-memory primitives, so WAL depends on
+  // exclusive locking mode — and sqlite.org is specific that it must be set
+  // "immediately after opening, before doing anything else with it". That
+  // wording matters on REOPEN, not just on create: a database already in WAL
+  // cannot be opened at all without it, and fails with SQLITE_CANTOPEN, which
+  // reads as "no such file" and means nothing of the kind.
+  //
+  // Running foreign_keys first cost us exactly that: a database written in WAL
+  // could never be reopened. Measured, not theorised — tests/gate-c.spec.ts
+  // pins it. sahpool is single-connection anyway, so exclusive locking gives up
+  // nothing we had.
+  db!.exec('PRAGMA locking_mode = exclusive');
+
   // Per-connection. Must be set on EVERY open, which is precisely why a
   // one-time migration could never have done this correctly.
   db!.exec('PRAGMA foreign_keys = ON');
 
-  // The pragma that actually earns its place on sahpool, and not for speed:
-  // temp files consume pool slots, and the pool is a fixed file count.
+  // Not for speed: temp files consume pool slots, and the pool is a fixed file
+  // count rather than a byte budget.
   db!.exec('PRAGMA temp_store = MEMORY');
-
-  // Deliberately NOT enabling WAL. It is possible since SQLite 3.47 via
-  // `locking_mode=exclusive` first, but sahpool is single-connection by
-  // construction, so WAL's concurrency benefit is unavailable by definition and
-  // sqlite.org claims only that it "may" help slightly. Measure before adopting.
 }
 
 /**
@@ -108,7 +118,8 @@ function applyPragmas(): void {
  * failing, so we return the readback and never assume. docs/15 §3a.
  */
 function applyJournalMode(mode: string, synchronous?: string): { journalMode: string; lockingMode: string } {
-  if (mode.toLowerCase() === 'wal') db!.exec('PRAGMA locking_mode = exclusive');
+  // locking_mode=exclusive is already set by applyPragmas() on every open, which
+  // is what makes WAL reachable here at all.
   db!.exec(`PRAGMA journal_mode = ${mode}`);
   if (synchronous) db!.exec(`PRAGMA synchronous = ${synchronous}`);
   return {
