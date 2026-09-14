@@ -642,3 +642,53 @@ exists in the browser and not in Node — using it would mean the parser took a
 different code path under test than in a writer's browser, the exact arrangement
 `NodeSqlDriver`'s header warns about, where the tests cannot see the bugs.
 
+
+### D26 — The readable export is the import format; there is no private one
+*Follows [D25](#d25--the-libriscribe-importer-is-dropped-a-general-bible-intake-replaces-it),
+which built the importer this relies on, and sits beside
+[D9](#d9--android-keeps-capacitor-even-though-nothing-ships-to-a-store)'s
+finding that with no server and evictable storage, an export is not optional.*
+
+There are two exports and they do different jobs. The `.lorescribe` archive is
+the **complete** copy — every column, every id, restorable exactly. The Markdown
+export is the **readable** one: files a writer can open in any editor, put in a
+git repository, or read in ten years when this app is gone.
+
+**The decision is that the readable one has no format of its own.** The bundle is
+a folder laid out the way a story bible already is — `characters/ilva.md`,
+`manuscript/book-one.md`, `reference/knowledge.md` — and it comes back in through
+the importer's existing path rules, the ones written for material a writer typed
+by hand. `characters/ilva.md` is recognised as a character because it sits in
+`characters/`, **not** because the exporter left a marker in it for itself.
+
+The alternative, and why not: an export carrying its own front matter or a
+manifest would round-trip more faithfully and would be quicker to write. It would
+also be a format only this app can read, which is a lock-in with a download
+button — and it would rot, because nothing else would ever exercise the reader.
+Sharing one path means every import bug is an export bug and the round trip is
+testable in one assertion: export a project, read the bundle back into an empty
+one, and nothing fails to resolve.
+
+**What round-trips is stated, not implied**, in the bundle's own `README.md`:
+names, prose, the key/value fields under each entry, and the who-knows-what
+table. Ids, ordering keys, revisions, kept drafts and the entity links inside a
+scene do not — the archive is for that, and the README says so to whoever opens
+the folder rather than leaving them to find out.
+
+Writing the round trip as a test immediately paid for itself: a character who
+*suspected* something, with a note about how they heard it, was exported as just
+the note and came back as plainly knowing. The belief — the distinction the
+`fact_knowledge` column exists for — was lost on the way out and unnoticeable on
+the way back in. The cell now leads with the belief word and follows with the
+note.
+
+Two smaller consequences worth keeping:
+
+- **Plain text is a separate rendering, not Markdown with the hashes stripped.**
+  A line reading `# Arrival` in a `.txt` is a leftover, not a heading.
+- **The zip writer and the `.docx` zip reader are one pair.** The docx tests
+  build their fixtures with the writer this app ships, so the reader is proved
+  against it rather than against a second implementation living in a test file.
+  Both are hand-written against `CompressionStream`, which the browser and Node
+  both have, rather than carrying a zip library into every page load.
+

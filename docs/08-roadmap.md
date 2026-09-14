@@ -145,7 +145,12 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   The parity bar existed to protect LibriScribe users and there are none; the
   bundle reader is a day's work if it is ever wanted.)*
 - **Backup and export: automatic, scheduled, and on by default.** Whole-project
-  `.lorescribe` archive plus plain Markdown. Not a backlog item — with no server
+  `.lorescribe` archive plus plain Markdown. *(Both built — `src/data/backup.ts`,
+  `archive.ts`, and `src/export/` with `src/data/exportRepository.ts`. The
+  Markdown export is a folder laid out the way a story bible already is, which
+  is the layout the importer reads back — [D26](10-decisions.md) — so there is
+  no private export format. Plain text beside it, because the parity bar asks
+  for it and a `.md` with the hashes stripped is not plain text.)* Not a backlog item — with no server
   and evictable browser storage, this is the only thing between you and total loss
   ([D9](10-decisions.md)). The archive is **versioned and self-describing**: every
   entry carries its own ids, parents, ranks, hash and dates, so a damaged archive is
@@ -258,9 +263,10 @@ before LibriScribe goes to maintenance. Phase in brackets.
 
 - [x] ~~Import a `.libriscribe.json` bundle without loss~~ — dropped,
       [D25](10-decisions.md): it protected nobody. Bible intake replaces it *(1)*
-- [ ] Per-item editing of every object, prose included *(1)*
+- [ ] Per-item editing of every object, prose included *(1)* — manuscript,
+      codex, facts and prose yes; arcs, beats and notes have no editor yet
 - [x] Version snapshots with diff and rollback *(1)*
-- [ ] Export: project archive, Markdown, plain text *(1)*
+- [x] Export: project archive, Markdown, plain text *(1)*
 - [ ] Write / rewrite **one scene**, propose → diff → accept, spliced in place *(2)*
 - [ ] Prompt/context preview before spending a token — the brief inspector *(2)*
 - [ ] Live model list per provider; per-project model choice; cost tracking *(2)*

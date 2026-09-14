@@ -62,6 +62,24 @@ function saveDelay(): number {
   return SAVE_AFTER_MS;
 }
 
+/**
+ * A delay on the `@` lookup, for Playwright only.
+ *
+ * Same reasoning as `saveDelay`, for the same class of bug. The lookup is a
+ * database round trip, so on a fast machine it lands before the writer can
+ * press an arrow and the race is invisible; under load it lands after, and the
+ * selection jumps back to the top. A test that only catches that when the suite
+ * happens to be busy is nearly as useless as no test, so the delay is made
+ * explicit and the race becomes deterministic.
+ *
+ * Gated on the build flag, so it is not in the shipped bundle at all.
+ */
+async function suggestDelay(): Promise<void> {
+  if (!import.meta.env.VITE_TEST_SURFACE) return;
+  const ms = (window as unknown as { __lsSuggestDelayMs?: number }).__lsSuggestDelayMs;
+  if (typeof ms === 'number' && ms > 0) await new Promise((r) => setTimeout(r, ms));
+}
+
 type SaveState = 'saved' | 'unsaved' | 'saving' | 'failed';
 
 export function SceneEditor({ projectId, scene, reloadToken = 0 }: {
@@ -134,6 +152,9 @@ function Surface({ projectId, scene, initialJson, aliases }: {
   const [suggest, setSuggest] = useState<SuggestState | null>(null);
   const [candidates, setCandidates] = useState<Entity[]>([]);
   const [chosen, setChosen] = useState(0);
+  // Bumped whenever the writer steers the list themselves. Read by the lookup
+  // below to tell "this list is new" from "this answer is late".
+  const choiceSeq = useRef(0);
   // `insertLinkAt` acts on the editor but is defined before it exists, and runs
   // only from a key press or a click — long after effects have settled.
   const editorRef = useRef<Editor | null>(null);
@@ -245,13 +266,21 @@ function Surface({ projectId, scene, initialJson, aliases }: {
   useEffect(() => {
     if (db.state !== 'ready') return;
     let cancelled = false;
+    // Which choice the writer had made when this lookup started. A lookup is a
+    // database round trip, so it can finish AFTER an arrow press — and landing
+    // `setChosen(0)` then silently moves the selection back to the top a
+    // moment after they moved it down. Under load that is exactly what happens.
+    const choiceAtStart = choiceSeq.current;
     void (async () => {
       const found = suggest
         ? (await db.codex.listEntities(projectId, { search: suggest.query })).slice(0, 8)
         : [];
+      await suggestDelay();
       if (cancelled) return;
       setCandidates(found);
-      setChosen(0);
+      // A new list starts at the top, unless the writer has already chosen
+      // within it while this was in flight.
+      if (choiceSeq.current === choiceAtStart) setChosen(0);
     })();
     return () => { cancelled = true; };
     // Deliberately NOT depending on insertLinkAt. Adding it made this effect
@@ -334,10 +363,12 @@ function Surface({ projectId, scene, initialJson, aliases }: {
         }
         if (!candidates.length) return false;
         if (event.key === 'ArrowDown') {
+          choiceSeq.current++;
           setChosen((i) => (i + 1) % candidates.length);
           return true;
         }
         if (event.key === 'ArrowUp') {
+          choiceSeq.current++;
           setChosen((i) => (i - 1 + candidates.length) % candidates.length);
           return true;
         }

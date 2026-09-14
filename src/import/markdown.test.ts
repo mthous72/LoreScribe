@@ -180,3 +180,15 @@ describe('nothing is silently dropped', () => {
     expect(doc.root.text).toBe('Just prose.');
   });
 });
+
+describe('a pipe inside a table cell', () => {
+  it('stays in its own cell', () => {
+    // Splitting naively puts the two halves in different columns and shifts
+    // every cell after it along by one. The table still renders, so nothing
+    // looks wrong until the wrong character is reading the wrong fact.
+    const md = [
+      '# T', '| Fact | Ilva |', '|---|---|', '| She left \\| or was taken | yes |',
+    ].join('\n');
+    expect(find(md, 'T').tables[0]?.rows).toEqual([['She left | or was taken', 'yes']]);
+  });
+});

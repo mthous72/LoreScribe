@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseDocx, readZipEntry, scanXml, unescapeXml, headingLevel, readDocumentXml, documentTree,
 } from './docx';
+import { writeZip } from '../export/zip';
 import { walk } from './source';
 
 /**
@@ -14,83 +15,18 @@ import { walk } from './source';
  * is the path a real `.docx` takes.
  */
 
-/* ------------------------------------------------------- a zip, from scratch */
+/* --------------------------------------------------------------- fixtures */
 
-const crcTable = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
-  }
-  return table;
-})();
-
-function crc32(bytes: Uint8Array): number {
-  let c = 0xffffffff;
-  for (const b of bytes) c = crcTable[(c ^ b) & 0xff]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([bytes as unknown as BlobPart]).stream()
-    .pipeThrough(new CompressionStream('deflate-raw'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-/** A real zip: local headers, a central directory, and an end record. */
-async function zip(files: Record<string, string>, store = false): Promise<Uint8Array> {
-  const encoder = new TextEncoder();
-  const locals: Uint8Array[] = [];
-  const directory: Uint8Array[] = [];
-  let offset = 0;
-
-  for (const [name, content] of Object.entries(files)) {
-    const raw = encoder.encode(content);
-    const body = store ? raw : await deflate(raw);
-    const nameBytes = encoder.encode(name);
-
-    const local = new Uint8Array(30 + nameBytes.length + body.length);
-    const lv = new DataView(local.buffer);
-    lv.setUint32(0, 0x04034b50, true);
-    lv.setUint16(8, store ? 0 : 8, true);
-    lv.setUint32(14, crc32(raw), true);
-    lv.setUint32(18, body.length, true);
-    lv.setUint32(22, raw.length, true);
-    lv.setUint16(26, nameBytes.length, true);
-    local.set(nameBytes, 30);
-    local.set(body, 30 + nameBytes.length);
-    locals.push(local);
-
-    const entry = new Uint8Array(46 + nameBytes.length);
-    const ev = new DataView(entry.buffer);
-    ev.setUint32(0, 0x02014b50, true);
-    ev.setUint16(10, store ? 0 : 8, true);
-    ev.setUint32(16, crc32(raw), true);
-    ev.setUint32(20, body.length, true);
-    ev.setUint32(24, raw.length, true);
-    ev.setUint16(28, nameBytes.length, true);
-    ev.setUint32(42, offset, true);
-    entry.set(nameBytes, 46);
-    directory.push(entry);
-    offset += local.length;
-  }
-
-  const directorySize = directory.reduce((n, d) => n + d.length, 0);
-  const end = new Uint8Array(22);
-  const endView = new DataView(end.buffer);
-  endView.setUint32(0, 0x06054b50, true);
-  endView.setUint16(8, directory.length, true);
-  endView.setUint16(10, directory.length, true);
-  endView.setUint32(12, directorySize, true);
-  endView.setUint32(16, offset, true);
-
-  const parts = [...locals, ...directory, end];
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const part of parts) { out.set(part, at); at += part.length; }
-  return out;
-}
+/**
+ * Built with the real zip writer rather than a second one living in this file.
+ *
+ * D14 rules out a binary fixture that came from anywhere real, and a fixture
+ * nobody can read is one nobody can fix. Using `writeZip` also means the reader
+ * below is proved against the writer this app actually ships, instead of
+ * against a test-only implementation that could drift from it.
+ */
+const zip = (files: Record<string, string>) =>
+  writeZip(Object.entries(files).map(([path, content]) => ({ path, content })));
 
 const p = (style: string | null, text: string) =>
   `<w:p>${style ? `<w:pPr><w:pStyle w:val="${style}"/></w:pPr>` : ''}`
@@ -113,12 +49,18 @@ describe('the zip reader', () => {
   it('finds an entry through the central directory and inflates it', async () => {
     // Through the directory rather than by scanning local headers: a streaming
     // writer leaves the compressed size out of the local header entirely.
-    const bytes = await zip({ 'a.txt': 'one', 'word/document.xml': 'two' });
-    expect(new TextDecoder().decode((await readZipEntry(bytes, 'word/document.xml'))!)).toBe('two');
+    // Long and repetitive so the entry is genuinely deflated — a short one is
+    // stored, and would prove nothing about inflate.
+    const long = 'the harbour was empty. '.repeat(200);
+    const bytes = await zip({ 'a.txt': 'one', 'word/document.xml': long });
+    expect(bytes.length).toBeLessThan(long.length);
+    expect(new TextDecoder().decode((await readZipEntry(bytes, 'word/document.xml'))!)).toBe(long);
   });
 
   it('reads a stored entry as well as a deflated one', async () => {
-    const bytes = await zip({ 'a.txt': 'plain' }, true);
+    // Deflate makes a tiny file bigger, so the writer stores it instead. Both
+    // methods have to come back out.
+    const bytes = await zip({ 'a.txt': 'plain' });
     expect(new TextDecoder().decode((await readZipEntry(bytes, 'a.txt'))!)).toBe('plain');
   });
 

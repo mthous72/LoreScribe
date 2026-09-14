@@ -70,8 +70,28 @@ function readField(line: string): SourceField | null {
   return { key, value: plain[2]!.trim() };
 }
 
-const cells = (row: string): string[] =>
-  row.trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((c) => c.trim());
+/**
+ * Split a table row on its unescaped pipes.
+ *
+ * A cell may contain a pipe as `\|` — which is how the exporter writes one, and
+ * how anybody writing a table by hand has to. Splitting naively puts the two
+ * halves in different columns and shifts every cell after it along by one: the
+ * table still renders, so nothing looks wrong until the wrong character is
+ * reading the wrong fact.
+ */
+const cells = (row: string): string[] => {
+  const out: string[] = [];
+  let cell = '';
+  const trimmed = row.trim().replace(/^\|/u, '').replace(/(?<!\\)\|$/u, '');
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i]!;
+    if (ch === '\\' && trimmed[i + 1] === '|') { cell += '|'; i++; continue; }
+    if (ch === '|') { out.push(cell.trim()); cell = ''; continue; }
+    cell += ch;
+  }
+  out.push(cell.trim());
+  return out;
+};
 
 /**
  * YAML front matter, read as fields and nothing more.
