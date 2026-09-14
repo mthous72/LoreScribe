@@ -31,6 +31,10 @@ local models. Graph-first traversal with vector search as a bounded supplement, 
 an extraction loop so the graph is harvested from writing rather than typed.
 
 ### D5 — LoreScribe succeeds LibriScribe
+*Amended by [D25](#d25--the-libriscribe-importer-is-dropped-a-general-bible-intake-replaces-it):
+the `.libriscribe.json` importer below was dropped once it was clear it
+protected nobody. The succession itself stands.*
+
 Not a sibling. Consequences, all of which are now planned for:
 - The `.libriscribe.json` importer is **Phase 1**, not a late nicety. Nothing else
   matters if existing books can't come across.
@@ -562,3 +566,79 @@ by reasoning about either side alone:
   that stepped back across it would be undoing keystrokes the writer never made.
 
 Both were verified by deleting them and watching the Playwright suite fail.
+
+
+### D25 — The LibriScribe importer is dropped; a general bible intake replaces it
+*Amends [D5](#d5--lorescribe-succeeds-libriscribe), which made the
+`.libriscribe.json` importer Phase 1 and blocking. D5's other consequences
+stand; this is one item of its parity bar, not the succession.*
+
+**Why the premise expired.** D5 reasoned that "nothing else matters if existing
+books can't come across", and the parity bar exists to protect people using
+LibriScribe. D5 itself recorded the honest note that LoreScribe is unpublished,
+so anyone else on LibriScribe stays on LibriScribe — which leaves exactly one
+person the importer could serve, and they report that they do not use it. A bar
+that protects nobody is not a bar. Dropped, with the bundle reader noted as a
+day's work if it is ever wanted rather than deleted from the record.
+
+**What replaces it, and why it is not a smaller thing.** A general way to bring
+in material a writer already has. Doc 08 already anticipated exactly this case
+in Phase 2 — *"a story bible that predates LoreScribe entirely, never run
+through LibriScribe"* — so this pulls the deterministic half of that forward
+into Phase 1 and leaves the extraction half where it was. The AI lane plugs into
+the same review as a second source of suggestions, which is the seam that makes
+the Phase 1 work permanent rather than a stopgap.
+
+**"Make no assumptions" is a design rule here, not an aspiration.** It decomposes
+into four things that are each checkable:
+
+1. **Parsers know nothing about story.** Every format produces one neutral
+   document tree — sections, key/value fields, tables — and nothing else. The
+   moment a parser emits an entity, the assumption about what a document *is*
+   has been made inside a parser where nobody can see it or change it. A JSON
+   file with a `characters` array becomes a table called "characters", not
+   characters.
+2. **Rules propose and state their reason.** Every suggested destination carries
+   the rule that produced it in the writer's own terms, because a suggestion
+   nobody can audit is one they accept blindly or reject wholesale, and both
+   make the review theatre.
+3. **The default is to do nothing.** Anything no rule recognises is `skip` — and
+   is still *listed* as skipped, because the only way to notice a missed section
+   in a silent list is to notice its absence, which nobody does across two
+   hundred rows. The cost of a wrong guess is a codex full of rows to find and
+   delete; the cost of a miss is one dropdown.
+4. **Nothing is written until it is accepted, and it can be taken back after.**
+
+**Staging needed no new tables.** `proposal_run` / `proposal` were already in the
+schema for Phase 5's extraction pass, and `seed_kind` has listed `import` since
+it was written. This is the first thing to use them and the first without an
+`ai_run_id` — which is why that column is nullable. The extra status values
+(`applied`, `failed`, `undone`) are free text with no constraint, and the drift
+guard from [D23](#d23--migration-001-is-frozen-and-the-suite-now-runs-an-old-database-forward)
+strips comments, so `db/schema.sql` is untouched and no migration was needed.
+
+**Two consequences of the staging design worth keeping:**
+
+- *Proposals refer to things by name, never by a minted id.* A fact about Ilva
+  points at the string "Ilva" and is resolved when it is applied. Minting ids at
+  staging time would mean rejecting the entity left the fact pointing at a row
+  that was never created — a rejection would **corrupt** the import rather than
+  shrink it.
+- *An applied import can be undone.* Creates are soft-deleted; updates are
+  restored from a snapshot captured at the moment the update is applied, because
+  by undo time the row has been overwritten and there is nothing left to
+  reconstruct it from. A bad mapping writes two hundred rows, and "delete them
+  by hand" is not an answer.
+
+**On matching what already exists**, the default is that an exact name or alias
+match proposes an *update*: re-importing a corrected file must not give you two
+Ilvas, and reconciling duplicates by hand is the job the importer was supposed
+to do. An import that omits a field leaves what is there alone.
+
+**Word and zip are parsed by hand**, and both for the same reason rather than to
+avoid dependencies. The zip uses `DecompressionStream`, which the browser and
+Node both have. The XML uses a small scanner rather than `DOMParser`, which
+exists in the browser and not in Node — using it would mean the parser took a
+different code path under test than in a writer's browser, the exact arrangement
+`NodeSqlDriver`'s header warns about, where the tests cannot see the bugs.
+
