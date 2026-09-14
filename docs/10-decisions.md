@@ -692,3 +692,152 @@ Two smaller consequences worth keeping:
   Both are hand-written against `CompressionStream`, which the browser and Node
   both have, rather than carrying a zip library into every page load.
 
+
+### D27 — D7 cut distribution, not usability; Phase 2.5 exists
+*Narrows [D7](#d7--personal-tool-not-published) and adds a phase to
+[doc 08](08-roadmap.md). Recorded because the gap was structural rather than an
+oversight: no phase in the plan had polish as its deliverable, so nothing was
+ever going to catch it.*
+
+**What D7 actually decided.** No Play Store, no release pipeline, no onboarding
+funnel, no support burden. [Doc 07 §F](07-suggestions-backlog.md) then listed the
+consequences: marketing surfaces, first-run tutorials, beta-reader links,
+accounts, support-grade error handling. Every one of those is a **distribution**
+surface — work that exists because strangers will arrive without context.
+
+**What it has been doing instead.** Quietly serving as permission to skip
+usability for the one person who writes in it. That is a different thing and D7
+never claimed it. A tool with one user still has a user, and they are the one
+person whose time it wastes.
+
+**Why nothing caught it.** Every phase in doc 08 is a capability phase, and every
+screen was built to make a feature provable — the facts page to prove the spoiler
+rule reaches real ranks, the import page to prove nothing is written before it is
+accepted. Each was designed against its feature and none against any other. The
+result passes 491 unit tests and 88 Playwright tests and is still tiring to sit
+in front of, because *unpleasant* is not a failing assertion. A quality nothing
+tests for needs a phase or it does not happen.
+
+**The narrowing, stated so it can be checked later.** D7 cuts anything whose
+audience is a stranger. It does not cut:
+- how long the app is comfortable to use in one sitting,
+- whether a screen says what it is for when it is empty,
+- whether you can get from one part of the app to another,
+- whether it can be driven from a keyboard, or read at AA contrast,
+- whether the phone is genuinely a writing surface rather than one that functions.
+
+Empty states are the edge case worth naming: they look like onboarding and are
+not. Onboarding teaches a stranger a product. An empty state tells the person who
+built the thing what this screen is for when they come back to it in March.
+
+**Where it goes.** Phase 2.5, after the compiler and before Laws. Phase 1's
+done-when already says *"if this phase isn't pleasant to use, no amount of AI
+will save it"* — the only sentence in doc 08 with nothing enforcing it. Phase 2
+adds the densest UI in the project, so polishing earlier polishes the wrong
+screens and polishing later means Phases 3–5 stack four more surfaces on a layout
+nobody has drawn. Its done-when is three checks rather than a feeling: a
+mechanical one, a twenty-minute writing session **on the phone** with a written
+record of what got in the way, and a re-read of Phase 1's claim answered in
+writing with reasons.
+
+
+### D28 — Drizzle is removed; the repositories always wrote SQL
+*Amends [doc 01](01-architecture.md), whose data layer read
+`Repositories → Drizzle ORM → SQLite` and described a layer that was not there.*
+
+**What was actually true.** Phase 0 built `src/db/drizzle.ts` and a
+`src/db/schema.ts` declaring **2 of the schema's 39 tables**, whose own header
+said the remaining 35 *"arrive in Phase 1 alongside the code that uses them"*.
+Phase 1 is finished. None arrived. Every repository written in it — manuscript,
+codex, facts, search, versions, import, export — goes straight to `SqlDriver`
+with SQL, and nothing ever touched the Drizzle handle `DbProvider` was exposing.
+
+Nobody decided against it; it simply never got picked up, because the queries
+this app needs are the ones an ORM is worst at. `MATCH` against FTS5 with
+`bm25()` column weights, rank recomputation scoped to the rows a move can reach,
+and a bulk export join across book/part/chapter/scene are all clearer as SQL and
+would have been fought at every step.
+
+**Two things made keeping it worse than removing it**, beyond the unused
+dependency:
+
+1. **A second schema definition that can drift.** `db/schema.sql` is the
+   canonical artefact and migration 001. A partial TypeScript restatement of it
+   is exactly the failure class [D23](#d23--migration-001-is-frozen-and-the-suite-now-runs-an-old-database-forward)
+   exists for — and `schema.ts`'s header claimed *"the schema-equivalence test
+   proves the two agree"*, which was not true: no such test was ever written.
+   A file asserting its own correctness with no test behind it is worse than one
+   that says nothing.
+2. **It invited a second idiom.** Phase 2 adds a provider layer and more data
+   access. A half-adopted ORM sitting in the tree is an invitation to start using
+   it there, leaving two ways to read a row and no rule about which.
+
+**Cost of removal, measured:** 55 → 54 production dependencies; the main bundle
+935 kB → 868 kB (290 → 272 kB gzip). Two files deleted, seven comments corrected.
+
+**What deliberately stays.** The driver's method names (`run` / `all` / `get` /
+`values`) and its positional-array rows were inherited from `sqlite-proxy`'s
+contract. They are unchanged, because every repository reads rows positionally
+and the async callback shape maps cleanly onto worker `postMessage` — but the
+comments now say where the shape came from rather than naming a library that is
+gone, and [doc 14](14-references.md) keeps the original findings for the same
+reason. A protocol outliving the thing that chose it is fine; a protocol nobody
+can explain is not.
+
+**If typed queries are wanted later**, add the dependency back deliberately, for
+a place it earns. Carrying one unused for a phase and a half is not the same as
+keeping the option open — it is paying for the option while losing the ability to
+notice that nothing is using it.
+
+
+### D29 — The beat is the unit of writing, and gaps are filled one at a time
+*Moves arcs, beats and `beat_scene` from Phase 4 to a new Phase 1b, and adds the
+gap screen to Phase 2. Both are sequencing changes; neither needs new
+architecture, which is the part worth noticing.*
+
+**Beats were mis-sequenced, and I said so wrongly.** Reviewing what Phase 2 needed,
+I listed "beats will be empty — arcs and beats are Phase 4" as an acceptable
+degradation to state rather than fix. That was wrong. Doc 03's `SceneBrief` has
+always carried `beats: BeatTarget[]`, described as *what this scene must
+accomplish*, and Step 1 collects the linked beats and the arcs they belong to.
+Generating against an empty one is generating against no target — which produces
+exactly the shapeless output the temporal graph exists to beat. A brief with
+perfect facts and no beat is a brief that knows everything about the world and
+nothing about what this scene is for.
+
+So arcs, beats, `beat_scene` and the beat/scene matrix move to **Phase 1b**,
+before the compiler. The arc board, tension curve, dual timeline, structure
+templates and top-down generation stay in Phase 4: authoring a beat is a
+prerequisite, visualising a hundred of them is not.
+
+**Generation is beat-sized, with whole-scene as a coarser mode.** A beat's prose
+is proposed, diffed and spliced in place rather than replacing a scene wholesale.
+Two consequences: it is the same "propose → diff → accept, spliced in place"
+the parity bar already asks for, and it is what Phase 3's span-level `origin`
+marks will attach to — a span can record the beat that produced it. Placement is
+by cursor at generation time; `beat_scene` says which beats a scene serves and in
+what role, not where in the prose they sit, and inventing a span column before
+the splice exists would be guessing at its shape.
+
+**Gap filling is the third proposal lane.** `src/domain/gapFinder.ts` was built
+and tested in Phase 0b and has never had a caller — it already reports
+`unrealised_beat`, `orphan_scene`, `thin_entity`, `missing_voice_profile`,
+`unresolved_arc`, `unresolved_thread` and two kinds of dangling reference.
+`proposal_run.seed_kind` has listed `gap_fill` since the schema was written,
+beside the `import` value the bible intake now uses. So this is a screen over a
+finished engine and a second producer for a finished review, not a new subsystem.
+
+**One gap, one request.** The discipline that makes it work is the same one the
+Scene Brief is built on: send what this one question needs, not the whole world.
+A model handed an entire story bible and asked to fill in the blanks will
+confabulate confidently across all of them and produce a hundred plausible
+answers nobody can check. A model asked *"this entity is referenced in four
+scenes and has no summary; here are the four sentences that mention it"* produces
+one answer, with its evidence beside it. The brief compiler is the machinery for
+doing that well, which is why the gap screen ships in Phase 2 rather than before
+it.
+
+**What this costs:** one week added at Phase 1b, one taken back off Phase 4, and
+the fixture novel moves behind beats — a fixture without them cannot exercise
+beat-driven generation, so building it first would measure the wrong thing.
+

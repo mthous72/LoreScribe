@@ -1,5 +1,6 @@
 import type { SqlDriver } from '../db/driver';
 import { markStale, DERIVED_KINDS } from '../index/indexState';
+import { downloadFile, safeName, stamp } from '../export/download';
 import {
   ARCHIVE_TABLES, serialiseHeader, serialiseRow, serialiseFooter,
   parseArchive, rowsByTable, type ParsedArchive,
@@ -181,14 +182,9 @@ export async function readSnapshot(name: string): Promise<string | null> {
 
 /** Hand the file to the writer. Requires a gesture; that is the browser's rule. */
 export function downloadArchive(text: string, projectTitle: string): void {
-  const safe = projectTitle.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase() || 'project';
-  const stamp = new Date().toISOString().slice(0, 10);
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${safe}-${stamp}.lorescribe`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  // Named and handed over by the same helpers the Markdown export uses, so a
+  // folder of backups sorts as one set rather than two conventions that drifted.
+  downloadFile(text, `${safeName(projectTitle)}-${stamp()}.lorescribe`, 'application/x-ndjson');
   markExported();
 }
 

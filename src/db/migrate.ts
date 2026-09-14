@@ -44,7 +44,7 @@ export async function migrate(
     await driver.exec('BEGIN');
     try {
       // Multi-statement SQL: exec(), not prepare(), which consumes only the
-      // first statement. Drizzle is not in this path.
+      // first statement.
       await driver.exec(m.sql);
       // PRAGMA cannot be parameterised; the integer is validated above.
       await driver.exec(`PRAGMA user_version = ${m.version}`);

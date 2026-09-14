@@ -147,7 +147,7 @@ copyleft dependency from quietly foreclosing the option to release later.
 Allowlist: MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, Unlicense, CC0, BlueOak-1.0.0,
 MIT-0, Python-2.0, and public domain (sqlite-wasm) — the last three added by
 [D19](10-decisions.md) after an audit found them in the tool but not here. Anything else fails the build until someone looks at it. The planned
-stack is clean: Tiptap, Capacitor, React (MIT); Drizzle, Tesseract.js (Apache-2.0).
+stack is clean: Tiptap, Capacitor, React (MIT); Tesseract.js (Apache-2.0).
 
 **One encryption-export wrinkle, recorded early so it isn't rediscovered.**
 `@capacitor-community/sqlite` links SQLCipher into the Android build **even when

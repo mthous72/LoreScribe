@@ -5,6 +5,8 @@ import { useReorder, type DropTarget } from '../ui/useReorder';
 import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
 import { SceneCast } from './SceneCast';
+import { SceneDetails } from './SceneDetails';
+import { SceneBeats } from './SceneBeats';
 import { SceneVersions } from './SceneVersions';
 
 /**
@@ -206,6 +208,9 @@ export function ManuscriptPage() {
         <Link to={`/project/${projectId}/facts`} className="underline opacity-70">
           Facts — what is true, and who knows →
         </Link>
+        <Link to={`/project/${projectId}/plan`} className="underline opacity-70">
+          Plan — arcs, beats, and the scenes that carry them →
+        </Link>
         <Link to={`/project/${projectId}/search`} className="underline opacity-70">
           Search →
         </Link>
@@ -311,6 +316,23 @@ export function ManuscriptPage() {
           <>
             <SceneEditor
               projectId={projectId} scene={openScene} reloadToken={contentToken} />
+            <SceneDetails
+              // Keyed on the scene so switching scenes remounts it rather than
+              // carrying the previous scene's loaded values into the new one.
+              key={openScene.id}
+              projectId={projectId}
+              sceneId={openScene.id}
+              // POV feeds the editor's mention decorations, which are compiled
+              // into the extension list — so the editor has to be rebuilt, the
+              // same way a restored draft rebuilds it.
+              onPovChanged={() => { setContentToken((n) => n + 1); reload(); }}
+            />
+            <SceneBeats
+              key={`beats:${openScene.id}`}
+              projectId={projectId}
+              sceneId={openScene.id}
+              bookId={bookId}
+            />
             <SceneCast projectId={projectId} sceneId={openScene.id} />
             <SceneVersions
               // Keyed on the scene: the chosen comparison, the last message and

@@ -45,6 +45,35 @@ export interface SceneSummary {
   globalRank: string; wordCount: number; status: string | null;
   povEntityId: string | null; rev: number;
 }
+/**
+ * The authored metadata about a scene — everything the scene brief will read
+ * that is not its prose.
+ *
+ * Every field is optional and an omitted one is left alone, never nulled: this
+ * is doc 08's "merges never destroy" applied to a form, so a panel that only
+ * knows about four of these cannot silently erase the rest.
+ */
+export interface SceneDetailsPatch {
+  title?: string;
+  /** Authored. `mention.role = 'pov'` is derived from it. */
+  povEntityId?: string | null;
+  povMode?: string | null;
+  tense?: string | null;
+  locationEntityId?: string | null;
+  /** What this scene must accomplish. */
+  purpose?: string | null;
+  /** Rolling compression level 1 — what the continuity ladder will summarise from. */
+  summary?: string | null;
+  /** 0–10, for the pacing curve. */
+  tension?: number | null;
+  status?: string | null;
+}
+
+export interface SceneDetails extends SceneDetailsPatch {
+  id: string;
+  wordCount: number;
+}
+
 export interface SceneContent {
   contentJson: string | null;
   contentText: string | null;
@@ -157,6 +186,63 @@ export class ManuscriptRepository {
     const r = rows as unknown[];
     if (!r.length) return null;
     return { contentJson: r[0] as string | null, contentText: r[1] as string | null };
+  }
+
+  async getSceneDetails(sceneId: string): Promise<SceneDetails | null> {
+    const rows = await this.#all(
+      `SELECT id, title, pov_entity_id, pov_mode, tense, location_entity_id,
+              purpose, summary, tension, status, word_count
+       FROM scene WHERE id = ? AND deleted_at IS NULL`, [sceneId]);
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      id: r[0] as string, title: (r[1] as string | null) ?? undefined,
+      povEntityId: r[2] as string | null, povMode: r[3] as string | null,
+      tense: r[4] as string | null, locationEntityId: r[5] as string | null,
+      purpose: r[6] as string | null, summary: r[7] as string | null,
+      tension: r[8] === null ? null : Number(r[8]),
+      status: r[9] as string | null, wordCount: Number(r[10] ?? 0),
+    };
+  }
+
+  /**
+   * Write the authored metadata.
+   *
+   * Only the keys actually present are written, so a caller that knows about
+   * four fields cannot blank the other four. Mentions are NOT re-detected here
+   * even though `pov_entity_id` changes them — `detectSpans` adds a `pov`
+   * mention for the authored character whether or not the prose ever names
+   * them, which is the whole point of a close-third scene. The caller runs
+   * `reindexScene`, for the same reason `saveSceneContent` leaves it to them:
+   * one write, one decision about when the derived data catches up.
+   */
+  async updateScene(id: string, patch: SceneDetailsPatch): Promise<void> {
+    const COLUMNS: Record<keyof SceneDetailsPatch, string> = {
+      title: 'title', povEntityId: 'pov_entity_id', povMode: 'pov_mode',
+      tense: 'tense', locationEntityId: 'location_entity_id', purpose: 'purpose',
+      summary: 'summary', tension: 'tension', status: 'status',
+    };
+    const keys = (Object.keys(patch) as (keyof SceneDetailsPatch)[])
+      .filter((k) => patch[k] !== undefined && k in COLUMNS);
+    if (!keys.length) return;
+
+    const now = Date.now();
+    const scene = await this.#sceneIndexRow(id);
+    const sets = keys.map((k) => `${COLUMNS[k]} = ?`).join(', ');
+    await this.driver.batch([
+      {
+        sql: `UPDATE scene SET ${sets}, updated_at = ?, rev = rev + 1
+              WHERE id = ? AND deleted_at IS NULL`,
+        params: [...keys.map((k) => patch[k] ?? null), now, id],
+      },
+      this.#op('scene', id, 'update', patch, now),
+      // The title reaches search; nothing else here does. A summary is authored
+      // shorthand, and a writer searching for a word wants the scene that
+      // contains it, not the one whose note mentions it.
+      ...(scene && patch.title !== undefined
+        ? sceneFtsStatements({ ...scene, title: patch.title })
+        : []),
+    ], true);
   }
 
   /* ---------------------------------------------------------------- creates */

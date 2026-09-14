@@ -28,7 +28,8 @@ what the phase contained.
   device, which is the evictable web path rather than the app-private native one.
   The only thing Phase 0 owes Phase 6 is a build base path that is a switch rather
   than a constant ([doc 15 §3d](15-phase-0-plan.md)).
-- `SqlDriver` interface with the sqlite-wasm implementation; Drizzle; the migration
+- `SqlDriver` interface with the sqlite-wasm implementation; Drizzle (carried
+  unused through Phase 1 and removed — [D28](10-decisions.md)); the migration
   runner; `db/schema.sql` as migration 001 — **minus its pragmas**, which are
   per-connection settings that differ by engine and belong in the driver
   ([doc 15 §3a](15-phase-0-plan.md)). A **driver conformance suite** is written
@@ -61,7 +62,7 @@ what the phase contained.
   of a three-row database with no lock and no size, and it would let every risk
   this phase exists to find survive into Phase 1.
 
-## Phase 0b — Implement the specified algorithms *(~1 week, runs alongside Phase 1)*
+## Phase 0b — Implement the specified algorithms *(~1 week, ran alongside Phase 1)* — **model-free half complete**
 
 [Doc 12](12-algorithms.md) is the specification and the tests are written against
 it. Per file, either **port from LibriScribe with the attribution header**
@@ -95,76 +96,67 @@ contains a proper noun, and staggered fragments merge into one phrase. (The
 counter's cases are inline in the test rather than in fixture files, so the
 arithmetic sits beside the expectation where a reviewer can check it.)
 
-## Phase 1 — The graph, with no AI at all *(~3 weeks)*
-- Codex CRUD for all entity types, aliases, relationships.
-  *(Built — `src/data/codexRepository.ts` and `src/app/CodexPage.tsx`. Creating
-  an entity mints a primary alias from its name, because the matcher reads
-  aliases and not `entity.name`; any alias change marks `mention` stale and the
-  page re-scans the manuscript rather than sending the writer to settings. The
-  attribute fields are rendered from each type's JSON Schema, which is what
-  makes migration 002's "a field added here appears in the UI without code"
-  true.)*
-- Manuscript tree (book/part/chapter/scene) with drag reorder and LexoRank.
-  *(Built — `src/data/manuscriptRepository.ts` and `src/app/ManuscriptPage.tsx`.
-  A reorder writes one row; `global_rank` and `scene_fts` move in the same
-  transaction. Pointer events with a keyboard path, not HTML5 drag-and-drop,
-  which never fires on touch — [D22](10-decisions.md).)*
-- Tiptap editor, autosave, word counts, scene versions and diff.
-  *(All built — `src/editor/SceneEditor.tsx`, `src/text/diff.ts`,
-  `src/data/versionsRepository.ts`, `src/app/SceneVersions.tsx`. Every path out
-  of the autosave debounce is closed and tested: hidden tab, scene switch, and a
-  takeover in another tab, which now waits for the save rather than racing it.
-  Keeping a draft and comparing against the page both flush that debounce first,
-  so neither can read a scene that is one sentence behind what the writer can
-  see. Restoring is non-destructive and the diff is paragraph-first —
-  [D24](10-decisions.md).)*
-- Alias-matching mention detection; backlinks; entity hover cards; `@` insert.
-  *(All four built. The card opens on a tap rather than a hover, because hover
-  does not exist on a phone and [D15](10-decisions.md) makes the phone a peer.
-  `@` insert writes an explicit link, which is the only way to reach an entity
-  whose name two entities share — the matcher refuses those rather than
-  guessing.)*
-- Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.
-  *(Built — `src/domain/factVisibility.ts` (the rule), `src/data/factsRepository.ts`,
-  `src/app/FactsPage.tsx`. The page's centre is a reading position: pick a scene
-  and a POV and every fact is labelled with what it is from there, by the same
-  rule Phase 2's brief compiler will run. Contradictions and continuity errors
-  are surfaced from `v_fact_conflicts` and a mechanical check.)*
-- FTS search across everything. *(Built — `src/data/searchQuery.ts`,
-  `searchRepository.ts`, `src/app/SearchPage.tsx`. Scenes and codex in one
-  ranked list, `bm25`-weighted so a name outranks a body mention. Nothing the
-  writer types reaches the FTS5 parser as syntax.)*
-- **Bible intake** — bring in material a writer already has: Markdown, plain
-  text, Word, JSON and CSV, mapped onto the graph through a review nobody can be
-  surprised by. *(Built — `src/import/`, `src/data/importRepository.ts`,
-  `src/app/ImportPage.tsx`. Parsers know nothing about story; rules propose and
-  say why; anything unrecognised is listed and skipped; nothing is written until
-  it is accepted and an applied import can be taken back out. Staged through the
-  `proposal_run` / `proposal` tables that Phase 5's extraction pass will share.)*
-  *(Replaces the `.libriscribe.json` importer, dropped — [D25](10-decisions.md).
-  The parity bar existed to protect LibriScribe users and there are none; the
-  bundle reader is a day's work if it is ever wanted.)*
-- **Backup and export: automatic, scheduled, and on by default.** Whole-project
-  `.lorescribe` archive plus plain Markdown. *(Both built — `src/data/backup.ts`,
-  `archive.ts`, and `src/export/` with `src/data/exportRepository.ts`. The
-  Markdown export is a folder laid out the way a story bible already is, which
-  is the layout the importer reads back — [D26](10-decisions.md) — so there is
-  no private export format. Plain text beside it, because the parity bar asks
-  for it and a `.md` with the hashes stripped is not plain text.)* Not a backlog item — with no server
-  and evictable browser storage, this is the only thing between you and total loss
-  ([D9](10-decisions.md)). The archive is **versioned and self-describing**: every
-  entry carries its own ids, parents, ranks, hash and dates, so a damaged archive is
-  partially recoverable and the importer salvages what it can instead of refusing
-  the file. A backup you can't open in twelve months isn't a backup.
-- **Index rebuild path** for all derived data (`mention`, FTS, embeddings, ranks),
-  driven by `index_state` algorithm revisions. *(Built — `src/index/`, surfaced
-  as a settings panel. `embedding` has no rebuilder until Phase 3 brings a
-  model, and says so rather than pretending.)*
-- Word counting as a specified, tested algorithm — not `split(" ")` — used
-  identically by goals, stats and budget estimates.
-- **Done when:** LoreScribe is already a usable novel-writing app with the best
-  lore-linking on the market and zero AI, and a bible you already wrote opens in
-  it. If this phase isn't pleasant to use, no amount of AI will save it.
+## Phase 1 — The graph, with no AI at all *(~3 weeks)* — **complete**
+
+Everything below is built, tested and merged. The reasoning behind each lives in
+the decision it cites and in the file's own header — this list is the plan, not
+the changelog.
+
+| Built | Where | The part worth remembering |
+|---|---|---|
+| Codex: types, aliases, relationships | `data/codexRepository.ts`, `app/CodexPage.tsx` | Attribute fields render from each type's JSON Schema, so migration 002's "a field added here appears in the UI without code" is true |
+| Manuscript tree with fractional-key reorder | `data/manuscriptRepository.ts`, `app/ManuscriptPage.tsx` | A reorder writes one row; pointer events with a keyboard path, not HTML5 drag ([D22](10-decisions.md)) |
+| Editor, autosave, word counts | `editor/SceneEditor.tsx` | Every path out of the debounce is closed and tested: hidden tab, scene switch, takeover in another tab |
+| Scene versions and diff | `text/diff.ts`, `data/versionsRepository.ts`, `app/SceneVersions.tsx` | Paragraph-first diff; a restore keeps the page before overwriting it ([D24](10-decisions.md)) |
+| Mentions, backlinks, entity cards, `@` insert | `domain/mentions.ts`, `editor/`, `app/SceneCast.tsx` | Tap, not hover — the phone is a peer ([D15](10-decisions.md)). `@` is the only way to reach a name two entities share |
+| Facts, at a reading position | `domain/factVisibility.ts`, `data/factsRepository.ts`, `app/FactsPage.tsx` | The spoiler rule is one pure function, and Phase 2's compiler calls the same one |
+| FTS search across scenes and codex | `data/searchQuery.ts`, `searchRepository.ts`, `app/SearchPage.tsx` | Nothing the writer types reaches the FTS5 parser as syntax |
+| Bible intake — Markdown, text, Word, JSON, CSV | `import/`, `data/importRepository.ts`, `app/ImportPage.tsx` | Parsers know nothing about story; unrecognised input is listed and skipped; an applied import can be taken back out ([D25](10-decisions.md)) |
+| Backup and export | `data/backup.ts`, `archive.ts`, `export/` | The archive is the complete copy and is self-describing so a damaged one is partly recoverable; the Markdown bundle has no private format and reads back through the importer ([D26](10-decisions.md)) |
+| Index rebuild path | `index/` | Driven by `index_state` revisions. `embedding` has no rebuilder until a model exists, and says so rather than pretending |
+| Word counting as a specified algorithm | `text/words.ts` | Not `split(" ")` — goals, stats and budget estimates all read it |
+
+**Done when — and the honest answer.** The bar was: *already a usable
+novel-writing app with the best lore-linking on the market and zero AI, and a
+bible you already wrote opens in it. If this phase isn't pleasant to use, no
+amount of AI will save it.*
+
+The first two clauses hold. **The third does not.** Every screen was built to
+make its own feature provable and none was ever designed against another, which
+is a real cost no test can see. That is what [Phase 2.5](#phase-25--making-it-worth-sitting-in-front-of-2-weeks)
+is for. The sentence is left standing here rather than quietly softened, because
+it is the one this project should be judged against.
+
+## Phase 1b — Beats, the unit of writing *(~1 week)* — **complete**
+
+Named for the 0b precedent: model-free graph work, run to finish what the next
+phase needs. It exists because listing "beats will be empty" as an acceptable
+Phase 2 degradation was wrong. Doc 03's brief has always had
+`beats: BeatTarget[]` — *"what this scene must accomplish"* — and generating
+against an empty one is generating against no target, which is precisely the
+shapeless output this project exists to beat ([D29](10-decisions.md)).
+
+- `arc`, `beat` and `beat_scene` repository and CRUD. Beat carries `function`
+  (setup/inciting/turn/midpoint/crisis/climax/resolution), `tension` and
+  `target_chapter_id`; the join carries a role (`setup|develop|payoff|echo`).
+- Authoring UI: beats under an arc, and the beats a scene serves shown beside
+  the editor next to its cast.
+- **The beat/scene matrix** — the `beat_scene` join as a grid, where unrealised
+  beats and orphan scenes both jump out ([doc 05](05-planning-arcs-and-scenes.md)).
+  It is also the companion to the gap screen in Phase 2, and `findGaps` already
+  reports both kinds.
+- **Not** in scope, still Phase 4: the arc board, tension curve, dual timeline,
+  structure templates, top-down generation.
+- **Done when:** a beat can be written, linked to the scenes that carry it, and
+  seen unrealised in the matrix — and the fixture novel below can be generated
+  with beats planted, because a fixture without them cannot exercise
+  beat-driven generation and would measure the wrong thing.
+  *(Built — `src/data/planRepository.ts`, `src/app/PlanPage.tsx`,
+  `src/app/SceneBeats.tsx`. The grid is the linking surface rather than a
+  report: a cell is the `beat_scene` row, so clicking one is the most direct way
+  to say a scene carries a beat. `findGaps` finally has a caller — the
+  unrealised-beat and orphan-scene markers come from it rather than from a
+  second opinion written in the page. The fixture novel is still to come.)*
 
 ## Phase 2 — The Scene Brief Compiler *(~3 weeks)* ← the decisive phase
 - **Bible intake, second lane.** The deterministic lane moved to Phase 1 and is
@@ -187,10 +179,23 @@ arithmetic sits beside the expectation where a reviewer can check it.)
     manually-triggered use.
   - Everything lands as proposals, reviewed once, same as any other extraction —
     D14 applies: the bible itself never enters this public repository.
-- `ProviderAdapter` + OpenRouter adapter + secure credential storage.
+- `ProviderAdapter` + OpenRouter adapter + credential storage. The key lives in
+  `provider_account` with the UI saying plainly that it is unencrypted on this
+  device — consistent with [D12](10-decisions.md), and already excluded from the
+  archive export, so it never travels in a file you hand to someone.
+- **The gap screen, and gap-fill as the third proposal lane.** `findGaps` has
+  been built and tested since Phase 0b with no caller at all; this is its
+  consumer. Each gap gets its own small, focused request rather than one that
+  hands a model the whole world — a gap brief, sibling to the scene brief and
+  built on the same discipline. Everything lands in `proposal_run` with
+  `seed_kind = 'gap_fill'`, a value the schema has carried from the start, and is
+  reviewed by the screen the importer already uses ([D29](10-decisions.md)).
 - Model profiles / roles.
 - The compiler, all nine steps, with the **brief inspector UI**.
-- Draft, Continue, Expand, Rewrite modes; streaming; cancellation.
+- Draft, Continue, Expand, Rewrite — **beat-sized by default**, with whole-scene
+  as a coarser mode. A beat's prose is proposed, diffed and spliced in place;
+  Phase 3's span-level `origin` marks later record which beat produced which
+  span. Streaming; cancellation.
 - `ai_run` recording with the stored brief.
 - Rolling summaries and the continuity ladder.
 - Lore Digest compiler for structural generation.
@@ -198,12 +203,84 @@ arithmetic sits beside the expectation where a reviewer can check it.)
 - **Done when:** on the fixture novel, a scene drafted at chapter 30 correctly
   respects facts established in chapter 2 and does not leak a chapter-40 reveal —
   and a big-dump control prompt fails at least one of those. Write that comparison
-  down; it is the product thesis.
+  down; it is the product thesis. *(The fixture is built —
+  `src/fixture/novel.ts`, generated from a seed and never committed. It returns
+  the ids the comparison names rather than leaving a test to hunt for them, and
+  `novel.test.ts` proves all five spoiler-rule outcomes fire from the chapter-30
+  reading position at once — a fixture that does not discriminate makes a green
+  comparison that means nothing.)*
 - **Second control:** run the same test against a general-purpose assistant given
   the whole bible in its context window, which is what a writer would otherwise
   do by hand. The LibriScribe A/B this bullet used to describe is gone with the
   importer ([D25](10-decisions.md)), and it was always the weaker comparison —
   a tool nobody else runs is a strawman of a different shape.
+
+## Phase 2.5 — Making it worth sitting in front of *(~2 weeks)*
+
+The only phase whose deliverable is not a capability. Every screen so far was
+built to make one feature provable, and none was ever designed against another —
+a real cost that no test can see. 491 unit tests and 88 Playwright tests pass
+against an app that is still tiring to use for three hours.
+
+Placed after Phase 2, not at the end. Phase 1's done-when already says *"if this
+phase isn't pleasant to use, no amount of AI will save it"* — currently the only
+sentence in this document with nothing enforcing it. Phase 2 adds the densest UI
+in the project (brief inspector, generation controls, streaming, cost), so
+polishing before it polishes the wrong screens, and polishing later means Phases
+3–5 stack four more surfaces on a layout nobody has drawn.
+
+Kept as 2.5 rather than renumbered: roughly ninety references to phase numbers
+exist across the docs and the code, and shifting all of them to insert one phase
+is a large edit that buys nothing.
+
+**What is wrong, measured rather than felt** — counts taken at the end of Phase 1:
+
+| | |
+|---|---|
+| Files in `src/ui/` | 1, and it is a drag hook |
+| Copies of one button class string | 15 — so a change to how a primary action looks will not happen |
+| `text-xs opacity-NN` spans | 53, across 7 opacity values chosen per component |
+| Pages at `max-w-3xl` | 11, whether they hold a tree, a table or a paragraph |
+| Colours meaning warning / destructive / positive | 19, by a convention written down nowhere |
+| Ways to navigate inside a project | none — inline underlined text in the page body, back via `← Manuscript` |
+
+`index.css` sets a considered 34rem measure and 1.7 line-height for prose and
+nothing at all for the chrome around it. Diagnostics — a developer surface —
+sits at equal billing with the writer's work in the only header there is. The
+facts and import screens are correct and look like admin panels, because that is
+what they were built as.
+
+**Scope:**
+
+- A small component layer in `src/ui/`: button, field, row, panel, empty state,
+  dialog. Not a design system — the set that removes the copy-paste.
+- One declared type scale and one declared set of semantic colours, in
+  `index.css` beside the prose rules, replacing the per-component guesswork.
+- Real navigation: a project-scoped header, every screen one step from every
+  other, Diagnostics out of the writer's primary nav.
+- Empty states that say what a screen is for and what to do first.
+- A layout pass per screen — facts and import especially, and the manuscript
+  tree, which is the one a writer looks at most.
+- **The phone judged as a writing surface, not a working one.** [D15](10-decisions.md)
+  makes it a peer; the Phase 1 device pass only established that things
+  *function*. Writing on it for twenty minutes has never been tried.
+- Accessibility finished rather than started: visible focus, AA contrast, and the
+  keyboard paths that exist joined into something you can drive without a pointer.
+
+**Not in scope**, still cut by [D7](10-decisions.md) and explained by
+[D27](10-decisions.md): onboarding funnels, first-run tutorials, marketing
+surfaces, a theming system, animation, a component-library dependency.
+
+**Done when** — three checks, because "it feels better" is not a bar:
+
+1. **Mechanical.** No copy-pasted button strings; every size and weight from the
+   declared scale; every screen one step away; nothing below AA contrast; suite
+   still green.
+2. **A session.** Draft a scene of at least 500 words **on the phone**, start to
+   finish, without opening a second app. Write down what got in the way — that
+   record is the artifact, the way Phase 2's control comparison is.
+3. **Honest.** Re-read Phase 1's done-when and answer in writing, with reasons,
+   whether it is true yet. If it is not, this phase is not finished.
 
 ## Phase 3 — Laws *(~2 weeks)*
 - Law CRUD, scoping, presets, the six categories.
@@ -217,15 +294,16 @@ arithmetic sits beside the expectation where a reviewer can check it.)
 - Span-level `origin` marks in the editor, with the provenance rollup.
 - IP category: trait-based style rewriting, protected-property warnings.
 
-## Phase 4 — Planning *(~3 weeks)*
-- Arcs, beats, `beat_scene`, structure templates.
-- Arc board, tension curve, dual timeline, beat/scene matrix.
+## Phase 4 — Planning *(~2 weeks)*
+- Structure templates. *(Arcs, beats and `beat_scene` moved to Phase 1b, and the
+  beat/scene matrix with them — [D29](10-decisions.md).)*
+- Arc board, tension curve, dual timeline.
 - Top-down generation (premise → beats → chapters → scene cards).
 - Setup/payoff ledger; unrealised-beat and orphan-scene reports.
 
 ## Phase 5 — Closing the loop *(~2 weeks)*
 - Extraction service, proposal staging, non-destructive field-by-field merge — the
-  general form of the bible-intake pipeline built in Phase 2, now triggered
+  general form of the bible-intake pipeline built in Phase 1, now triggered
   automatically after each scene rather than manually against a whole document.
 - Evidence verification applied across every AI assertion about the manuscript.
 - Narrative thread tracker (promises, setups, questions, items).
@@ -256,10 +334,17 @@ arithmetic sits beside the expectation where a reviewer can check it.)
 
 ## The parity bar
 
-LoreScribe replaces LibriScribe ([D5](10-decisions.md)), so there's a bar to clear
-before LibriScribe goes to maintenance. Phase in brackets.
+LoreScribe succeeds LibriScribe ([D5](10-decisions.md)). The bar was originally
+"what must work before LibriScribe goes to maintenance" — [D25](10-decisions.md)
+removed that framing, since LibriScribe has no users left to protect and its
+importer was dropped for the same reason.
 
-**Blocking — LibriScribe does these and they're load-bearing:**
+What the list is still worth keeping for: LibriScribe was used to write with, so
+each line below is a thing that turned out to matter in practice rather than a
+feature somebody imagined. It is a checklist of earned requirements, not a debt.
+Phase in brackets.
+
+**Load-bearing — these were used, and their absence would be felt:**
 
 - [x] ~~Import a `.libriscribe.json` bundle without loss~~ — dropped,
       [D25](10-decisions.md): it protected nobody. Bible intake replaces it *(1)*
@@ -294,8 +379,13 @@ doesn't have (see [doc 07 §E](07-suggestions-backlog.md)).
 Series bible, maps, image generation, publishing helpers, plugins. Sync service
 only if the single-device assumption ever breaks.
 
-**Total: ~18 weeks at full-time pace** (0b overlaps 1). At evenings-and-weekends
-pace, treat Phase 1 as the thing to cut down, not the phases after it.
+**Total: ~21 weeks at full-time pace** (0b overlapped 1; Phase 2.5 added two;
+Phase 1b added one and took one back off Phase 4).
+At evenings-and-weekends pace, treat Phase 1 as the thing to cut down, not the
+phases after it — advice now spent, since Phase 1 is done.
+
+**Where it actually stands:** Phases 0, 0b (model-free half) and 1 are complete.
+Phase 2 is next and is the one that proves or kills the premise.
 
 ---
 
@@ -355,7 +445,10 @@ These came out of the LibriScribe review and apply to every phase:
    budget allocator and capability model are what make it a config change; if
    Phase 2 is built right, Phase 7 is small.
 
-## Early technical spikes worth doing before Phase 1 ends
+## Spikes still outstanding — now Phase 2 entry work
+
+Phase 1 has ended, so these are no longer "before it ends". Both remaining ones
+gate Phase 2's first week and neither has been run.
 
 The first of these moved into Phase 0 proper and is specified in
 [doc 15 §4](15-phase-0-plan.md) — SQLite-WASM + OPFS at 150k words, with query

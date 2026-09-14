@@ -1,15 +1,26 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { NavLink, Route, Routes } from 'react-router-dom';
 import { registerServiceWorker, type UpdateHandle } from '../pwa/register';
 import { DbProvider, useDb } from './DbProvider';
 import { LockedScreen, YieldedScreen } from './LockedScreen';
 import { ProjectsPage } from './ProjectsPage';
-import { DiagnosticsPage } from './DiagnosticsPage';
 import { ManuscriptPage } from './ManuscriptPage';
 import { CodexPage } from './CodexPage';
 import { SearchPage } from './SearchPage';
 import { ImportPage } from './ImportPage';
 import { FactsPage } from './FactsPage';
+import { PlanPage } from './PlanPage';
+
+/**
+ * Diagnostics is developer-only, and it drags the whole measurement rig behind
+ * it — the spike runner and a generator that builds a 150,000-word corpus. In
+ * the main chunk, every writer downloads all of it on every cold load to reach a
+ * page they will never open, and [D13](../../docs/10-decisions.md) makes a phone
+ * on mobile data the primary platform. Split out, so the cost lands on whoever
+ * asks for it.
+ */
+const DiagnosticsPage = lazy(() =>
+  import('./DiagnosticsPage').then((m) => ({ default: m.DiagnosticsPage })));
 
 /**
  * The update offer, not an update interruption.
@@ -48,7 +59,6 @@ function Shell() {
           <NavLink to="/diagnostics" className={({ isActive }) => isActive ? 'font-medium' : 'opacity-60'}>
             Diagnostics
           </NavLink>
-          <span className="ml-auto text-xs opacity-40">phase 0</span>
         </nav>
       </header>
 
@@ -74,8 +84,18 @@ function Shell() {
           <Route path="/project/:projectId/codex" element={<CodexPage />} />
           <Route path="/project/:projectId/search" element={<SearchPage />} />
           <Route path="/project/:projectId/facts" element={<FactsPage />} />
+          <Route path="/project/:projectId/plan" element={<PlanPage />} />
           <Route path="/project/:projectId/import" element={<ImportPage />} />
-          <Route path="/diagnostics" element={<DiagnosticsPage />} />
+          <Route
+            path="/diagnostics"
+            element={(
+              <Suspense fallback={
+                <p className="mx-auto max-w-3xl px-4 py-16 text-sm opacity-60">Loading…</p>
+              }>
+                <DiagnosticsPage />
+              </Suspense>
+            )}
+          />
         </Routes>
       )}
     </div>

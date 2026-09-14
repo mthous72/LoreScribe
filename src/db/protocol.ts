@@ -4,7 +4,15 @@
 // deprecated 2026-04-15 and its author describes it as "too fragile, too
 // imperformant, and too limited for any non-toy software". See docs/15 §7.
 
-/** Drizzle's sqlite-proxy method names. `values` and `all` differ only downstream. */
+/**
+ * The driver's query methods. `values` and `all` differ only downstream.
+ *
+ * These names, and the positional-array row shape they return, were inherited
+ * from drizzle's sqlite-proxy contract. Drizzle itself is gone ([D28](../../docs/10-decisions.md));
+ * the shape stays because every repository reads rows positionally, and the
+ * provenance is recorded here so the next reader does not wonder why a local
+ * SQLite driver speaks a proxy protocol.
+ */
 export type SqlMethod = 'run' | 'all' | 'values' | 'get';
 
 export interface OpenRequest {

@@ -236,3 +236,60 @@ describe('deleting', () => {
     expect(await all('SELECT rev FROM scene WHERE id = ?', [scenes[0]!.id])).toEqual(rev);
   });
 });
+
+describe('the authored metadata a scene brief will read', () => {
+  it('writes only the fields it was given, and leaves the rest alone', async () => {
+    // Doc 08's "merges never destroy", applied to a form: a panel that knows
+    // about four fields must not be able to blank the other four.
+    const { scenes } = await skeleton();
+    const id = scenes[0]!.id;
+    await repo.updateScene(id, { purpose: 'Get her through the gate.', tension: 7 });
+    await repo.updateScene(id, { tense: 'past' });
+
+    const details = await repo.getSceneDetails(id);
+    expect(details).toMatchObject({
+      purpose: 'Get her through the gate.', tension: 7, tense: 'past',
+    });
+  });
+
+  it('records a POV character, which is what the pov mention is derived from', async () => {
+    const { scenes } = await skeleton();
+    await driver.query(
+      `INSERT INTO entity (id,project_id,type_key,name,created_at,updated_at)
+       VALUES ('e1',?, 'character','Ilva',1,1)`, [PROJECT], 'run');
+    await repo.updateScene(scenes[0]!.id, { povEntityId: 'e1' });
+    expect((await repo.getSceneDetails(scenes[0]!.id))?.povEntityId).toBe('e1');
+  });
+
+  it('can clear a field that was set, without clearing its neighbours', async () => {
+    const { scenes } = await skeleton();
+    const id = scenes[0]!.id;
+    await repo.updateScene(id, { purpose: 'Something', summary: 'Kept' });
+    await repo.updateScene(id, { purpose: null });
+
+    const details = await repo.getSceneDetails(id);
+    expect(details?.purpose).toBeNull();
+    expect(details?.summary).toBe('Kept');
+  });
+
+  it('does nothing at all when given nothing', async () => {
+    const { scenes } = await skeleton();
+    const before = Number((await all('SELECT rev FROM scene WHERE id = ?', [scenes[0]!.id]))[0]![0]);
+    await repo.updateScene(scenes[0]!.id, {});
+    expect(Number((await all('SELECT rev FROM scene WHERE id = ?', [scenes[0]!.id]))[0]![0]))
+      .toBe(before);
+  });
+
+  it('logs the change, and moves a renamed title into search', async () => {
+    const { scenes } = await skeleton();
+    await repo.updateScene(scenes[0]!.id, { title: 'The harbour', summary: 'Not searchable' });
+    expect(await opLog()).toContain('scene/update');
+
+    const hits = await all("SELECT title FROM scene_fts WHERE scene_fts MATCH 'harbour'");
+    expect(hits).toEqual([['The harbour']]);
+    // A summary is authored shorthand: searching a word should find the scene
+    // that contains it, not the one whose note mentions it.
+    expect(await all("SELECT COUNT(*) FROM scene_fts WHERE scene_fts MATCH 'searchable'"))
+      .toEqual([[0]]);
+  });
+});

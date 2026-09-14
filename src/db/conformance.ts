@@ -38,7 +38,7 @@ export async function runConformance(driver: SqlDriver): Promise<Case[]> {
     CREATE TABLE _conf_child (id INTEGER PRIMARY KEY, parent INTEGER NOT NULL REFERENCES _conf(id));
   `);
 
-  // Drizzle's sqlite-proxy contract: rows are POSITIONAL ARRAYS of column
+  // The driver contract, inherited from sqlite-proxy: rows are POSITIONAL ARRAYS of column
   // values, not row objects. Getting this wrong produces data that looks
   // plausible and is wrong, which is the worst failure mode available.
   await check('all() returns an array of positional arrays', async () => {

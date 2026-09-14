@@ -43,9 +43,8 @@ export class NodeSqlDriver implements SqlDriver {
 
   async query(sql: string, params: unknown[], method: SqlMethod): Promise<{ rows: unknown[] }> {
     const stmt = this.db.prepare(sql);
-    // Positional arrays, matching the worker protocol and drizzle-orm's
-    // sqlite-proxy contract — an object per row would pass every test here and
-    // break every caller in the app.
+    // Positional arrays, matching the worker protocol — an object per row would
+    // pass every test here and break every caller in the app.
     stmt.setReturnArrays(true);
     const bound = params.map((p) => (typeof p === 'boolean' ? (p ? 1 : 0) : p)) as never[];
     if (method === 'run') { stmt.run(...bound); return { rows: [] }; }

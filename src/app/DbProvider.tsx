@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { WorkerSqlDriver } from '../db/client';
 import { SqlOpenError } from '../db/driver';
 import { migrate } from '../db/migrate';
-import { makeDb, type Db } from '../db/drizzle';
 import { ProjectRepository } from '../data/projectRepository';
 import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { CodexRepository } from '../data/codexRepository';
@@ -11,6 +10,7 @@ import { FactsRepository } from '../data/factsRepository';
 import { VersionsRepository } from '../data/versionsRepository';
 import { ImportRepository } from '../data/importRepository';
 import { ExportRepository } from '../data/exportRepository';
+import { PlanRepository } from '../data/planRepository';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -24,7 +24,6 @@ const HEARTBEAT_MS = 15_000;
 interface Ready {
   state: 'ready';
   driver: WorkerSqlDriver;
-  db: Db;
   projects: ProjectRepository;
   manuscript: ManuscriptRepository;
   codex: CodexRepository;
@@ -33,6 +32,7 @@ interface Ready {
   versions: VersionsRepository;
   imports: ImportRepository;
   exports: ExportRepository;
+  plan: PlanRepository;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -194,7 +194,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
         setState({
-          state: 'ready', driver, db: makeDb(driver),
+          state: 'ready', driver,
           projects: new ProjectRepository(driver),
           manuscript,
           codex,
@@ -203,6 +203,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           versions: new VersionsRepository(driver, manuscript),
           imports: new ImportRepository(driver, codex, facts, manuscript),
           exports: new ExportRepository(driver),
+          plan: new PlanRepository(driver),
           diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {
