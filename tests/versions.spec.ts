@@ -156,8 +156,9 @@ test('the drafts of a scene belong to that scene', async ({ page }) => {
   await page.getByRole('button', { name: /^Scene 2, / }).click();
   await expect(page.getByText(/No kept drafts yet/)).toBeVisible();
 
-  // And the comparison does not follow either. The panel is keyed on the scene
-  // precisely so a picker cannot end up naming a draft this scene has never had.
+  // And the comparison does not follow either: the panel is keyed on the scene,
+  // so switching remounts it and the picker cannot go on naming a draft this
+  // scene has never had.
   await type(page, 'Scene two prose.');
   await keep(page, 'scene two draft');
   await expect(drafts(page)).toHaveCount(1);
@@ -165,9 +166,15 @@ test('the drafts of a scene belong to that scene', async ({ page }) => {
   // Back to the first scene, which is where the comparison can go wrong: its
   // picker must name its own draft, not the one chosen while scene two was
   // open. A select holding an id that is not among its options renders as the
-  // first one and looks fine, so the value is what has to be asserted.
+  // first one and looks fine, so the value is what has to be asserted — and the
+  // draft is located by name, because both scenes have exactly one.
   await page.getByRole('button', { name: /^Scene 1, / }).click();
-  await expect(drafts(page)).toHaveCount(1);
-  const own = await drafts(page).first().getAttribute('data-version-id');
+  // Wait for the panel to be showing THIS scene's draft, by name. Both scenes
+  // have exactly one draft, so `toHaveCount(1)` is satisfied by the previous
+  // scene's list too — and reading the id through it is a race that fails once
+  // every several full runs, naming scene two's draft.
+  const mine = drafts(page).filter({ hasText: 'draft 1' });
+  await expect(mine).toHaveCount(1);
+  const own = await mine.first().getAttribute('data-version-id');
   await expect(page.getByLabel('Compare')).toHaveValue(own!);
 });

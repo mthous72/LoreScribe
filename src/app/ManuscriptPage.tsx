@@ -317,10 +317,9 @@ export function ManuscriptPage() {
             <SceneEditor
               projectId={projectId} scene={openScene} reloadToken={contentToken} />
             <SceneDetails
-              // Namespaced: keys only have to be unique among siblings, and
-              // these panels are siblings. Two of them keyed on the same scene
-              // id let React reuse one's state for the other.
-              key={`details:${openScene.id}`}
+              // Keyed on the scene so switching scenes remounts it rather than
+              // carrying the previous scene's loaded values into the new one.
+              key={openScene.id}
               projectId={projectId}
               sceneId={openScene.id}
               // POV feeds the editor's mention decorations, which are compiled
@@ -339,9 +338,8 @@ export function ManuscriptPage() {
               // Keyed on the scene: the chosen comparison, the last message and
               // a half-typed draft name all belong to the scene they were made
               // in, and carrying them across would point the pickers at drafts
-              // the new scene does not have. Namespaced so it cannot collide
-              // with a sibling panel keyed on the same scene.
-              key={`versions:${openScene.id}`}
+              // the new scene does not have.
+              key={openScene.id}
               projectId={projectId}
               scene={openScene}
               onRestored={() => { setContentToken((n) => n + 1); reload(); }}

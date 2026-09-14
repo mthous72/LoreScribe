@@ -203,7 +203,12 @@ shapeless output this project exists to beat ([D29](10-decisions.md)).
 - **Done when:** on the fixture novel, a scene drafted at chapter 30 correctly
   respects facts established in chapter 2 and does not leak a chapter-40 reveal —
   and a big-dump control prompt fails at least one of those. Write that comparison
-  down; it is the product thesis.
+  down; it is the product thesis. *(The fixture is built —
+  `src/fixture/novel.ts`, generated from a seed and never committed. It returns
+  the ids the comparison names rather than leaving a test to hunt for them, and
+  `novel.test.ts` proves all five spoiler-rule outcomes fire from the chapter-30
+  reading position at once — a fixture that does not discriminate makes a green
+  comparison that means nothing.)*
 - **Second control:** run the same test against a general-purpose assistant given
   the whole bible in its context window, which is what a writer would otherwise
   do by hand. The LibriScribe A/B this bullet used to describe is gone with the
