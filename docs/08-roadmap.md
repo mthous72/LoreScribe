@@ -197,8 +197,8 @@ is a large edit that buys nothing.
 `index.css` sets a considered 34rem measure and 1.7 line-height for prose and
 nothing at all for the chrome around it. Diagnostics — a developer surface —
 sits at equal billing with the writer's work in the only header there is. The
-header has said `phase 0` for weeks. The facts and import screens are correct and
-look like admin panels, because that is what they were built as.
+facts and import screens are correct and look like admin panels, because that is
+what they were built as.
 
 **Scope:**
 
@@ -216,7 +216,6 @@ look like admin panels, because that is what they were built as.
   *function*. Writing on it for twenty minutes has never been tried.
 - Accessibility finished rather than started: visible focus, AA contrast, and the
   keyboard paths that exist joined into something you can drive without a pointer.
-- Delete the `phase 0` badge and anything else that lies.
 
 **Not in scope**, still cut by [D7](10-decisions.md) and explained by
 [D27](10-decisions.md): onboarding funnels, first-run tutorials, marketing
