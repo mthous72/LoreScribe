@@ -8,6 +8,7 @@ import { DiagnosticsPage } from './DiagnosticsPage';
 import { ManuscriptPage } from './ManuscriptPage';
 import { CodexPage } from './CodexPage';
 import { SearchPage } from './SearchPage';
+import { FactsPage } from './FactsPage';
 
 /**
  * The update offer, not an update interruption.
@@ -71,6 +72,7 @@ function Shell() {
           <Route path="/project/:projectId" element={<ManuscriptPage />} />
           <Route path="/project/:projectId/codex" element={<CodexPage />} />
           <Route path="/project/:projectId/search" element={<SearchPage />} />
+          <Route path="/project/:projectId/facts" element={<FactsPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
         </Routes>
       )}

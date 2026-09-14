@@ -121,6 +121,11 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   whose name two entities share — the matcher refuses those rather than
   guessing.)*
 - Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.
+  *(Built — `src/domain/factVisibility.ts` (the rule), `src/data/factsRepository.ts`,
+  `src/app/FactsPage.tsx`. The page's centre is a reading position: pick a scene
+  and a POV and every fact is labelled with what it is from there, by the same
+  rule Phase 2's brief compiler will run. Contradictions and continuity errors
+  are surfaced from `v_fact_conflicts` and a mechanical check.)*
 - FTS search across everything. *(Built — `src/data/searchQuery.ts`,
   `searchRepository.ts`, `src/app/SearchPage.tsx`. Scenes and codex in one
   ranked list, `bm25`-weighted so a name outranks a body mention. Nothing the

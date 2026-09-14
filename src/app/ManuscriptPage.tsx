@@ -190,6 +190,9 @@ export function ManuscriptPage() {
         <Link to={`/project/${projectId}/codex`} className="underline opacity-70">
           Codex — the people, places and things this book knows about →
         </Link>
+        <Link to={`/project/${projectId}/facts`} className="underline opacity-70">
+          Facts — what is true, and who knows →
+        </Link>
         <Link to={`/project/${projectId}/search`} className="underline opacity-70">
           Search →
         </Link>

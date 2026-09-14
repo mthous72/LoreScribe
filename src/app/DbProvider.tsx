@@ -7,6 +7,7 @@ import { ProjectRepository } from '../data/projectRepository';
 import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { CodexRepository } from '../data/codexRepository';
 import { SearchRepository } from '../data/searchRepository';
+import { FactsRepository } from '../data/factsRepository';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -25,6 +26,7 @@ interface Ready {
   manuscript: ManuscriptRepository;
   codex: CodexRepository;
   search: SearchRepository;
+  facts: FactsRepository;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -178,6 +180,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           manuscript: new ManuscriptRepository(driver),
           codex: new CodexRepository(driver),
           search: new SearchRepository(driver),
+          facts: new FactsRepository(driver),
           diagnostics, storage, uncleanShutdown, registerFlush,
         });
       } catch (e) {
