@@ -205,6 +205,89 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   importer ([D25](10-decisions.md)), and it was always the weaker comparison —
   a tool nobody else runs is a strawman of a different shape.
 
+## Phase 2.5 — Making it worth sitting in front of *(~2 weeks)*
+
+The only phase whose deliverable is not a capability. Everything up to here was
+built to be *provable* — each screen exists because a feature needed somewhere to
+be demonstrated and tested — and nothing has ever been designed against anything
+else. That is a real cost and it is invisible to the suite: 491 unit tests and 88
+Playwright tests pass against an app that is still tiring to use for three hours.
+
+Placed after Phase 2 rather than at the end, for two reasons. Phase 1's own
+done-when says *"if this phase isn't pleasant to use, no amount of AI will save
+it"* — currently the only unenforced sentence in this document. And Phase 2 adds
+the densest UI in the project (the brief inspector, generation controls,
+streaming, cost). Polishing before it is polishing the wrong screens; polishing
+straight after is the last moment before Phases 3–5 stack four more surfaces on a
+layout nobody has drawn.
+
+**What is actually wrong, measured rather than felt** (counts from the end of
+Phase 1):
+
+- **No component layer.** `src/ui/` contains one file, and it is a drag hook. The
+  same button class string is copy-pasted 15 times; a change to how a primary
+  action looks is a change in 15 places, so it will not happen.
+- **Hierarchy is done with opacity, by eye.** 53 `text-xs opacity-NN` spans
+  across 7 distinct opacity values, chosen per-component. There is no type scale
+  and no reason any given thing is at 50 rather than 60.
+- **The chrome has no typography, though the prose does.** `index.css` sets a
+  considered 34rem measure and 1.7 line-height for the editor — and nothing at
+  all for everything around it, which is 11 pages all at `max-w-3xl` regardless
+  of whether they hold a tree, a table or a paragraph.
+- **Colour is undeclared semantics.** Almost everything is `currentColor` at some
+  alpha; the 19 real colours that exist mean warning, destructive and positive by
+  convention that is written down nowhere and applied inconsistently.
+- **Navigation does not exist inside a project.** The header offers Projects and
+  Diagnostics — a developer surface at equal billing — and never changes. The
+  manuscript, codex, facts, search and import pages are reached by inline
+  underlined text in the page body, and left by a `← Manuscript` link.
+- **The header still says `phase 0`.** It has been deployed that way for weeks.
+- **Empty states are one line and a button**, on every screen that has one.
+- **The facts and import screens look like admin panels**, because that is what
+  they were built as. They are correct — the reading position, a stated reason on
+  every proposal — and correctness is not the same as being usable for an hour.
+
+**Scope:**
+
+- A small component layer in `src/ui/` — button, field, row, panel, empty state,
+  dialog. Not a design system; the set that removes the copy-paste.
+- One declared type scale and one declared set of semantic colours, in
+  `index.css` beside the prose rules, replacing the per-component opacity
+  guesswork.
+- Real navigation: a project-scoped header, so every screen is one step from
+  every other and Diagnostics stops sharing billing with the writer's work.
+- Empty states that say what the screen is for and what to do first — the only
+  onboarding this project will ever have, and the only kind D7 does not cut.
+- A layout pass per screen: the facts and import screens especially, and the
+  manuscript tree, which is the one a writer looks at most.
+- **The phone judged as a writing surface, not a working one.** [D15](10-decisions.md)
+  makes it a peer; the Phase 1 device pass only established that the tree, drag,
+  editor and codex *function*. Writing a scene on a phone for twenty minutes is a
+  different test and has never been run.
+- Accessibility finished rather than started: visible focus everywhere, contrast
+  checked at AA, and the keyboard paths that exist (reorder, the `@` picker)
+  joined up into something you can actually drive without a pointer.
+- Delete the stale `phase 0` badge and anything else that lies.
+
+**Explicitly not in scope** (still cut by [D7](10-decisions.md), and
+[D27](10-decisions.md) says why the rest is not): onboarding funnels, first-run
+tutorials, marketing surfaces, a theming system, animation, or a component
+library dependency.
+
+**Done when** — three checks, because "it feels better" is not a bar:
+
+1. **The mechanical one.** Zero copy-pasted button strings; every opacity and
+   size drawn from the declared scale; every screen reachable in one step; no
+   text below AA contrast; the suite still green.
+2. **The session one.** Draft a scene of at least 500 words **on the phone**,
+   start to finish, without opening a second app and without the tool getting in
+   the way. Write down what did get in the way — that record is the artifact,
+   the same way Phase 2's control comparison is.
+3. **The honest one.** Re-read the Phase 1 done-when — *"already a usable
+   novel-writing app… if this phase isn't pleasant to use, no amount of AI will
+   save it"* — and say whether it is true yet, in writing, with reasons. If it is
+   not, this phase is not finished.
+
 ## Phase 3 — Laws *(~2 weeks)*
 - Law CRUD, scoping, presets, the six categories.
 - Injection phase; budget protection for `must` laws.

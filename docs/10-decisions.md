@@ -692,3 +692,51 @@ Two smaller consequences worth keeping:
   Both are hand-written against `CompressionStream`, which the browser and Node
   both have, rather than carrying a zip library into every page load.
 
+
+### D27 — D7 cut distribution, not usability; Phase 2.5 exists
+*Narrows [D7](#d7--personal-tool-not-published) and adds a phase to
+[doc 08](08-roadmap.md). Recorded because the gap was structural rather than an
+oversight: no phase in the plan had polish as its deliverable, so nothing was
+ever going to catch it.*
+
+**What D7 actually decided.** No Play Store, no release pipeline, no onboarding
+funnel, no support burden. [Doc 07 §F](07-suggestions-backlog.md) then listed the
+consequences: marketing surfaces, first-run tutorials, beta-reader links,
+accounts, support-grade error handling. Every one of those is a **distribution**
+surface — work that exists because strangers will arrive without context.
+
+**What it has been doing instead.** Quietly serving as permission to skip
+usability for the one person who writes in it. That is a different thing and D7
+never claimed it. A tool with one user still has a user, and they are the one
+person whose time it wastes.
+
+**Why nothing caught it.** Every phase in doc 08 is a capability phase, and every
+screen was built to make a feature provable — the facts page to prove the spoiler
+rule reaches real ranks, the import page to prove nothing is written before it is
+accepted. Each was designed against its feature and none against any other. The
+result passes 491 unit tests and 88 Playwright tests and is still tiring to sit
+in front of, because *unpleasant* is not a failing assertion. A quality nothing
+tests for needs a phase or it does not happen.
+
+**The narrowing, stated so it can be checked later.** D7 cuts anything whose
+audience is a stranger. It does not cut:
+- how long the app is comfortable to use in one sitting,
+- whether a screen says what it is for when it is empty,
+- whether you can get from one part of the app to another,
+- whether it can be driven from a keyboard, or read at AA contrast,
+- whether the phone is genuinely a writing surface rather than one that functions.
+
+Empty states are the edge case worth naming: they look like onboarding and are
+not. Onboarding teaches a stranger a product. An empty state tells the person who
+built the thing what this screen is for when they come back to it in March.
+
+**Where it goes.** Phase 2.5, after the compiler and before Laws. Phase 1's
+done-when already says *"if this phase isn't pleasant to use, no amount of AI
+will save it"* — the only sentence in doc 08 with nothing enforcing it. Phase 2
+adds the densest UI in the project, so polishing earlier polishes the wrong
+screens and polishing later means Phases 3–5 stack four more surfaces on a layout
+nobody has drawn. Its done-when is three checks rather than a feeling: a
+mechanical one, a twenty-minute writing session **on the phone** with a written
+record of what got in the way, and a re-read of Phase 1's claim answered in
+writing with reasons.
+
