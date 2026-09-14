@@ -120,7 +120,10 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   does not exist on a phone and [D15](10-decisions.md) makes the phone a peer.
   `@` insert is not built.)*
 - Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.
-- FTS search across everything.
+- FTS search across everything. *(Built — `src/data/searchQuery.ts`,
+  `searchRepository.ts`, `src/app/SearchPage.tsx`. Scenes and codex in one
+  ranked list, `bm25`-weighted so a name outranks a body mention. Nothing the
+  writer types reaches the FTS5 parser as syntax.)*
 - **`.libriscribe.json` importer** — entities, chapters, scenes, arcs, milestones,
   threads and prose mapped onto the graph, with chapter integers resolved to scene
   references. LoreScribe is a successor ([D5](10-decisions.md)); nothing else

@@ -186,9 +186,14 @@ export function ManuscriptPage() {
         Drag a row by its handle, or focus one and press Alt with the up and down
         arrows. Moving a scene past the end of a chapter moves it into the next.
       </p>
-      <Link to={`/project/${projectId}/codex`} className="mt-2 inline-block text-xs underline opacity-70">
-        Codex — the people, places and things this book knows about →
-      </Link>
+      <div className="mt-2 flex flex-wrap gap-x-4 text-xs">
+        <Link to={`/project/${projectId}/codex`} className="underline opacity-70">
+          Codex — the people, places and things this book knows about →
+        </Link>
+        <Link to={`/project/${projectId}/search`} className="underline opacity-70">
+          Search →
+        </Link>
+      </div>
 
       {/* Announced rather than only shown: a drag gives sighted feedback the
           keyboard path does not. */}
