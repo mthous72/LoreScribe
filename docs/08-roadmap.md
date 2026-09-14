@@ -127,7 +127,7 @@ is a real cost no test can see. That is what [Phase 2.5](#phase-25--making-it-wo
 is for. The sentence is left standing here rather than quietly softened, because
 it is the one this project should be judged against.
 
-## Phase 1b — Beats, the unit of writing *(~1 week)*
+## Phase 1b — Beats, the unit of writing *(~1 week)* — **complete**
 
 Named for the 0b precedent: model-free graph work, run to finish what the next
 phase needs. It exists because listing "beats will be empty" as an acceptable
@@ -151,6 +151,12 @@ shapeless output this project exists to beat ([D29](10-decisions.md)).
   seen unrealised in the matrix — and the fixture novel below can be generated
   with beats planted, because a fixture without them cannot exercise
   beat-driven generation and would measure the wrong thing.
+  *(Built — `src/data/planRepository.ts`, `src/app/PlanPage.tsx`,
+  `src/app/SceneBeats.tsx`. The grid is the linking surface rather than a
+  report: a cell is the `beat_scene` row, so clicking one is the most direct way
+  to say a scene carries a beat. `findGaps` finally has a caller — the
+  unrealised-beat and orphan-scene markers come from it rather than from a
+  second opinion written in the page. The fixture novel is still to come.)*
 
 ## Phase 2 — The Scene Brief Compiler *(~3 weeks)* ← the decisive phase
 - **Bible intake, second lane.** The deterministic lane moved to Phase 1 and is

@@ -9,6 +9,7 @@ import { CodexPage } from './CodexPage';
 import { SearchPage } from './SearchPage';
 import { ImportPage } from './ImportPage';
 import { FactsPage } from './FactsPage';
+import { PlanPage } from './PlanPage';
 
 /**
  * Diagnostics is developer-only, and it drags the whole measurement rig behind
@@ -83,6 +84,7 @@ function Shell() {
           <Route path="/project/:projectId/codex" element={<CodexPage />} />
           <Route path="/project/:projectId/search" element={<SearchPage />} />
           <Route path="/project/:projectId/facts" element={<FactsPage />} />
+          <Route path="/project/:projectId/plan" element={<PlanPage />} />
           <Route path="/project/:projectId/import" element={<ImportPage />} />
           <Route
             path="/diagnostics"

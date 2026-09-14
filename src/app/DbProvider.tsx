@@ -10,6 +10,7 @@ import { FactsRepository } from '../data/factsRepository';
 import { VersionsRepository } from '../data/versionsRepository';
 import { ImportRepository } from '../data/importRepository';
 import { ExportRepository } from '../data/exportRepository';
+import { PlanRepository } from '../data/planRepository';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -31,6 +32,7 @@ interface Ready {
   versions: VersionsRepository;
   imports: ImportRepository;
   exports: ExportRepository;
+  plan: PlanRepository;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -201,6 +203,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           versions: new VersionsRepository(driver, manuscript),
           imports: new ImportRepository(driver, codex, facts, manuscript),
           exports: new ExportRepository(driver),
+          plan: new PlanRepository(driver),
           diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {

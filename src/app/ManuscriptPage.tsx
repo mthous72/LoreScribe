@@ -6,6 +6,7 @@ import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
 import { SceneCast } from './SceneCast';
 import { SceneDetails } from './SceneDetails';
+import { SceneBeats } from './SceneBeats';
 import { SceneVersions } from './SceneVersions';
 
 /**
@@ -207,6 +208,9 @@ export function ManuscriptPage() {
         <Link to={`/project/${projectId}/facts`} className="underline opacity-70">
           Facts — what is true, and who knows →
         </Link>
+        <Link to={`/project/${projectId}/plan`} className="underline opacity-70">
+          Plan — arcs, beats, and the scenes that carry them →
+        </Link>
         <Link to={`/project/${projectId}/search`} className="underline opacity-70">
           Search →
         </Link>
@@ -323,6 +327,12 @@ export function ManuscriptPage() {
               // into the extension list — so the editor has to be rebuilt, the
               // same way a restored draft rebuilds it.
               onPovChanged={() => { setContentToken((n) => n + 1); reload(); }}
+            />
+            <SceneBeats
+              key={`beats:${openScene.id}`}
+              projectId={projectId}
+              sceneId={openScene.id}
+              bookId={bookId}
             />
             <SceneCast projectId={projectId} sceneId={openScene.id} />
             <SceneVersions
