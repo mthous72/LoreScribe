@@ -9,6 +9,8 @@ import { CodexRepository } from '../data/codexRepository';
 import { SearchRepository } from '../data/searchRepository';
 import { FactsRepository } from '../data/factsRepository';
 import { VersionsRepository } from '../data/versionsRepository';
+import { ImportRepository } from '../data/importRepository';
+import { ExportRepository } from '../data/exportRepository';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -29,6 +31,8 @@ interface Ready {
   search: SearchRepository;
   facts: FactsRepository;
   versions: VersionsRepository;
+  imports: ImportRepository;
+  exports: ExportRepository;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -184,6 +188,8 @@ export function DbProvider({ children }: { children: ReactNode }) {
         }
 
         const manuscript = new ManuscriptRepository(driver);
+        const codex = new CodexRepository(driver);
+        const facts = new FactsRepository(driver);
         const storage = await requestPersistence();
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
@@ -191,10 +197,12 @@ export function DbProvider({ children }: { children: ReactNode }) {
           state: 'ready', driver, db: makeDb(driver),
           projects: new ProjectRepository(driver),
           manuscript,
-          codex: new CodexRepository(driver),
+          codex,
           search: new SearchRepository(driver),
-          facts: new FactsRepository(driver),
+          facts,
           versions: new VersionsRepository(driver, manuscript),
+          imports: new ImportRepository(driver, codex, facts, manuscript),
+          exports: new ExportRepository(driver),
           diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {

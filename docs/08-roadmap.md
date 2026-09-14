@@ -134,12 +134,23 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   `searchRepository.ts`, `src/app/SearchPage.tsx`. Scenes and codex in one
   ranked list, `bm25`-weighted so a name outranks a body mention. Nothing the
   writer types reaches the FTS5 parser as syntax.)*
-- **`.libriscribe.json` importer** — entities, chapters, scenes, arcs, milestones,
-  threads and prose mapped onto the graph, with chapter integers resolved to scene
-  references. LoreScribe is a successor ([D5](10-decisions.md)); nothing else
-  matters if your existing books can't come across.
+- **Bible intake** — bring in material a writer already has: Markdown, plain
+  text, Word, JSON and CSV, mapped onto the graph through a review nobody can be
+  surprised by. *(Built — `src/import/`, `src/data/importRepository.ts`,
+  `src/app/ImportPage.tsx`. Parsers know nothing about story; rules propose and
+  say why; anything unrecognised is listed and skipped; nothing is written until
+  it is accepted and an applied import can be taken back out. Staged through the
+  `proposal_run` / `proposal` tables that Phase 5's extraction pass will share.)*
+  *(Replaces the `.libriscribe.json` importer, dropped — [D25](10-decisions.md).
+  The parity bar existed to protect LibriScribe users and there are none; the
+  bundle reader is a day's work if it is ever wanted.)*
 - **Backup and export: automatic, scheduled, and on by default.** Whole-project
-  `.lorescribe` archive plus plain Markdown. Not a backlog item — with no server
+  `.lorescribe` archive plus plain Markdown. *(Both built — `src/data/backup.ts`,
+  `archive.ts`, and `src/export/` with `src/data/exportRepository.ts`. The
+  Markdown export is a folder laid out the way a story bible already is, which
+  is the layout the importer reads back — [D26](10-decisions.md) — so there is
+  no private export format. Plain text beside it, because the parity bar asks
+  for it and a `.md` with the hashes stripped is not plain text.)* Not a backlog item — with no server
   and evictable browser storage, this is the only thing between you and total loss
   ([D9](10-decisions.md)). The archive is **versioned and self-describing**: every
   entry carries its own ids, parents, ranks, hash and dates, so a damaged archive is
@@ -152,13 +163,14 @@ arithmetic sits beside the expectation where a reviewer can check it.)
 - Word counting as a specified, tested algorithm — not `split(" ")` — used
   identically by goals, stats and budget estimates.
 - **Done when:** LoreScribe is already a usable novel-writing app with the best
-  lore-linking on the market and zero AI, and your LibriScribe books open in it.
-  If this phase isn't pleasant to use, no amount of AI will save it.
+  lore-linking on the market and zero AI, and a bible you already wrote opens in
+  it. If this phase isn't pleasant to use, no amount of AI will save it.
 
 ## Phase 2 — The Scene Brief Compiler *(~3 weeks)* ← the decisive phase
-- **Bible intake, first.** A real project (a story bible that predates LoreScribe
-  entirely, never run through LibriScribe) needs a way in before any brief can be
-  compiled against it. Two lanes, run over the same document set:
+- **Bible intake, second lane.** The deterministic lane moved to Phase 1 and is
+  built ([D25](10-decisions.md)); what is left here is the extraction lane, which
+  plugs into the same review as a second source of suggestions. Two lanes, run
+  over the same document set:
   - **Template-aware structured parsing**, no model call: sections that already
     follow a recognisable shape — a character file's Bio/Want/Need/Past/Arc
     fields, a "who knows what" table, a physical-state note scoped to a scene —
@@ -187,11 +199,11 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   respects facts established in chapter 2 and does not leak a chapter-40 reveal —
   and a big-dump control prompt fails at least one of those. Write that comparison
   down; it is the product thesis.
-- **Second control, where it applies:** for a manuscript that already has a
-  LibriScribe project, importing its `.libriscribe.json` bundle and running the
-  same test there is a real A/B against a working tool rather than a strawman
-  prompt. Not every fixture will have one — the bible-intake path above exists
-  precisely for the case where it doesn't.
+- **Second control:** run the same test against a general-purpose assistant given
+  the whole bible in its context window, which is what a writer would otherwise
+  do by hand. The LibriScribe A/B this bullet used to describe is gone with the
+  importer ([D25](10-decisions.md)), and it was always the weaker comparison —
+  a tool nobody else runs is a strawman of a different shape.
 
 ## Phase 3 — Laws *(~2 weeks)*
 - Law CRUD, scoping, presets, the six categories.
@@ -249,10 +261,12 @@ before LibriScribe goes to maintenance. Phase in brackets.
 
 **Blocking — LibriScribe does these and they're load-bearing:**
 
-- [ ] Import a `.libriscribe.json` bundle without loss *(1)*
-- [ ] Per-item editing of every object, prose included *(1)*
+- [x] ~~Import a `.libriscribe.json` bundle without loss~~ — dropped,
+      [D25](10-decisions.md): it protected nobody. Bible intake replaces it *(1)*
+- [ ] Per-item editing of every object, prose included *(1)* — manuscript,
+      codex, facts and prose yes; arcs, beats and notes have no editor yet
 - [x] Version snapshots with diff and rollback *(1)*
-- [ ] Export: project archive, Markdown, plain text *(1)*
+- [x] Export: project archive, Markdown, plain text *(1)*
 - [ ] Write / rewrite **one scene**, propose → diff → accept, spliced in place *(2)*
 - [ ] Prompt/context preview before spending a token — the brief inspector *(2)*
 - [ ] Live model list per provider; per-project model choice; cost tracking *(2)*

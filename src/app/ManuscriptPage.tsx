@@ -169,6 +169,14 @@ export function ManuscriptPage() {
           className="mt-4 rounded-lg border border-current/20 bg-current/10 px-4 py-2 text-sm font-medium">
           Create the first book
         </button>
+        {/* Reachable before there is a book, because a writer with a world
+            already written down and nothing in LoreScribe yet is exactly the
+            person who came here to import it. */}
+        <p className="mt-4 text-xs">
+          <Link to={`/project/${projectId}/import`} className="underline opacity-70">
+            Or bring in a bible you have already written →
+          </Link>
+        </p>
       </div>
     );
   }
@@ -200,6 +208,9 @@ export function ManuscriptPage() {
         </Link>
         <Link to={`/project/${projectId}/search`} className="underline opacity-70">
           Search →
+        </Link>
+        <Link to={`/project/${projectId}/import`} className="underline opacity-70">
+          Import — bring a bible in →
         </Link>
       </div>
 

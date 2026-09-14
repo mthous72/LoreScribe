@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDb } from './DbProvider';
+import { downloadFile, safeName, stamp } from '../export/download';
 import {
   exportProjectArchive, downloadArchive, writeSnapshot, backupStatus,
   type BackupStatus,
@@ -115,6 +116,46 @@ export function BackupPanel({ projectId, projectTitle }: { projectId: string; pr
           }}
           className="rounded-lg px-4 py-2 text-sm underline opacity-70">
           Snapshot now
+        </button>
+      </div>
+
+      {/* The readable copy, beside the complete one. Two different jobs: the
+          archive is what restores this app, and these are what survive it. */}
+      <h3 className="mt-6 text-xs font-semibold uppercase tracking-wide opacity-50">
+        A copy you can read
+      </h3>
+      <p className="mt-1 text-xs opacity-70">
+        Plain Markdown — no database, nothing that needs this program to open.
+        LoreScribe reads the folder back in, so you can edit it anywhere.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              if (db.state !== 'ready') return;
+              const bytes = await db.exports.zip(projectId, projectTitle);
+              downloadFile(bytes, `${safeName(projectTitle)}-${stamp()}.zip`, 'application/zip');
+              setNote(`Saved ${Math.max(1, Math.round(bytes.length / 1024))} KB of Markdown.`);
+            } finally { setBusy(false); }
+          }}
+          className="rounded-lg border border-current/20 px-4 py-2 text-sm disabled:opacity-50">
+          Save everything as Markdown
+        </button>
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              if (db.state !== 'ready') return;
+              const text = await db.exports.manuscript(projectId);
+              downloadFile(text, `${safeName(projectTitle)}-${stamp()}.md`, 'text/markdown');
+              setNote('Saved the manuscript as one document.');
+            } finally { setBusy(false); }
+          }}
+          className="rounded-lg px-4 py-2 text-sm underline opacity-70 disabled:opacity-50">
+          Just the manuscript, as one file
         </button>
       </div>
 

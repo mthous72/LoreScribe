@@ -159,12 +159,29 @@ test('Escape closes the list and leaves the typing alone', async ({ page }) => {
 
 test('the arrows choose without taking the caret out of the prose', async ({ page }) => {
   await project(page, ['Ilva', 'Ilva Renn']);
+  // Hold each lookup open long enough that one is guaranteed to come back after
+  // the arrow press below. See `suggestDelay` in SceneEditor.
+  await page.evaluate(() => {
+    (window as unknown as { __lsSuggestDelayMs: number }).__lsSuggestDelayMs = 400;
+  });
   await surface(page).click();
-  await page.keyboard.type('@Ilva');
+  // Enough to bring both names up. The list is now populated by THIS lookup.
+  await page.keyboard.type('@I');
   await expect(options(page)).toHaveCount(2);
 
+  // Finish the word. Each keystroke starts another lookup, and the delay above
+  // holds them open — so when the arrow is pressed a moment later, one is still
+  // in flight. That is the writer typing and choosing in one motion, which is
+  // the only way anybody uses this.
+  await page.keyboard.type('lva');
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('[data-chosen=true]')).toContainText('Ilva Renn');
+
+  // The pending lookup now lands. It must not put the selection back at the
+  // top: a list that is merely newer is not a choice the writer made.
+  await page.waitForTimeout(900);
+  await expect(page.locator('[data-chosen=true]')).toContainText('Ilva Renn');
+
   await page.keyboard.press('Enter');
 
   await expect(page.locator('.ls-mention-explicit')).toHaveText('Ilva Renn');
