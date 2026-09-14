@@ -115,10 +115,11 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   closed and tested: hidden tab, scene switch, and a takeover in another tab,
   which now waits for the save rather than racing it.)*
 - Alias-matching mention detection; backlinks; entity hover cards; `@` insert.
-  *(Detection, live highlighting, backlinks in both directions, and the entity
-  card are built. The card opens on a tap rather than a hover, because hover
+  *(All four built. The card opens on a tap rather than a hover, because hover
   does not exist on a phone and [D15](10-decisions.md) makes the phone a peer.
-  `@` insert is not built.)*
+  `@` insert writes an explicit link, which is the only way to reach an entity
+  whose name two entities share — the matcher refuses those rather than
+  guessing.)*
 - Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.
 - FTS search across everything. *(Built — `src/data/searchQuery.ts`,
   `searchRepository.ts`, `src/app/SearchPage.tsx`. Scenes and codex in one

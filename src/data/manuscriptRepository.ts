@@ -483,12 +483,14 @@ export class ManuscriptRepository {
 
   async #sceneIndexRow(id: string): Promise<SceneIndexRow | null> {
     const rows = await this.#all(
-      'SELECT id, title, content_text, global_rank, pov_entity_id FROM scene WHERE id = ?', [id]);
+      `SELECT id, title, content_text, global_rank, pov_entity_id, content_json
+       FROM scene WHERE id = ?`, [id]);
     const r = rows[0];
     if (!r) return null;
     return {
       id: r[0] as string, title: r[1] as string | null, contentText: r[2] as string | null,
       globalRank: r[3] as string | null, povEntityId: r[4] as string | null,
+      contentJson: r[5] as string | null,
     };
   }
 

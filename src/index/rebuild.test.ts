@@ -124,12 +124,60 @@ describe('mentions', () => {
       .toEqual([[1]]);
   });
 
-  it('never destroys a mention the prose placed explicitly', async () => {
+  /** A stored document with one word linked to an entity by an `@` insert. */
+  const linkedDoc = (before: string, linked: string, entityId: string) => JSON.stringify({
+    type: 'doc',
+    content: [{
+      type: 'paragraph',
+      content: [
+        { type: 'text', text: before },
+        { type: 'text', text: linked, marks: [{ type: 'entityLink', attrs: { entityId } }] },
+        { type: 'text', text: '.' },
+      ],
+    }],
+  });
+
+  it('finds an entity the matcher cannot, because the writer pointed at it', async () => {
+    // "Rhys" is nobody's alias, so the matcher will never link it. An explicit
+    // link is the only way to reach an entity whose name on the page is
+    // ambiguous or absent from the alias list — which is what `@` is for.
+    await driver.batch([
+      { sql: "UPDATE scene SET content_text = 'The Rhys.', content_json = ? WHERE id = 's2'",
+        params: [linkedDoc('The ', 'Rhys', 'e1')] },
+    ], true);
+
+    await rebuildAll(driver, PROJECT, ['rank', 'mention']);
+    expect(await all("SELECT entity_id, method, alias_used FROM mention WHERE scene_id = 's2'"))
+      .toEqual([['e1', 'explicit', 'Rhys']]);
+  });
+
+  it('removes an explicit link when the word it pointed at is gone', async () => {
+    // The rule that changed when `@` insert landed: explicit rows used to be
+    // preserved unconditionally, because nothing created them. Now they are
+    // derived from the document's marks, so keeping one would mean a link
+    // outliving the word it was attached to.
+    await driver.query(
+      "UPDATE scene SET content_text = 'The Rhys.', content_json = ? WHERE id = 's2'",
+      [linkedDoc('The ', 'Rhys', 'e1')], 'run');
+    await rebuildAll(driver, PROJECT, ['rank', 'mention']);
+    expect(await all("SELECT COUNT(*) FROM mention WHERE scene_id = 's2'")).toEqual([[1]]);
+
+    await driver.query(
+      "UPDATE scene SET content_text = 'The hall.', content_json = NULL WHERE id = 's2'",
+      [], 'run');
+    await rebuildAll(driver, PROJECT, ['rank', 'mention']);
+    expect(await all("SELECT COUNT(*) FROM mention WHERE scene_id = 's2'")).toEqual([[0]]);
+  });
+
+  it('leaves a method it does not produce alone', async () => {
+    // An `inferred` row will come from a model pass that cannot be re-derived
+    // from the text. Clobbering it on the next keystroke would throw away work
+    // that costs money to produce.
     await driver.query(
       `INSERT INTO mention (id,scene_id,entity_id,role,method,confirmed,created_at)
-       VALUES ('m-explicit','s2','e1','present','explicit',0,?)`, [NOW], 'run');
+       VALUES ('m-inferred','s2','e1','present','inferred',0,?)`, [NOW], 'run');
     await rebuildAll(driver, PROJECT, ['rank', 'mention']);
-    expect(await all("SELECT method FROM mention WHERE id = 'm-explicit'")).toEqual([['explicit']]);
+    expect(await all("SELECT method FROM mention WHERE id = 'm-inferred'")).toEqual([['inferred']]);
   });
 
   it('replaces its own stale rows rather than piling up duplicates', async () => {

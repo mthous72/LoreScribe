@@ -1,5 +1,6 @@
 import type { SqlDriver } from '../db/driver';
 import { detectMentions, type AliasEntry } from '../domain/mentions';
+import { entityLinksFrom } from '../editor/entityLink';
 import { uuidv7 } from '../data/ids';
 
 /**
@@ -22,21 +23,39 @@ export interface SceneIndexRow {
   id: string;
   title: string | null;
   contentText: string | null;
+  /**
+   * The stored document, read for the explicit `@` links in its marks.
+   *
+   * Taken from the row rather than handed in by the editor so the write path
+   * and a wholesale rebuild see the same links. A rebuild that could not see
+   * them would delete every one as stale on its first run.
+   */
+  contentJson?: string | null;
   globalRank: string | null;
   povEntityId: string | null;
 }
 
 /**
- * The mentions this scene keeps no matter what the matcher says, expressed as
- * the exact complement of the delete below. `IS` rather than `=` so a NULL
- * `method` falls on one side or the other instead of both: a row that the
- * delete leaves behind and this query does not report is a row the insert
- * duplicates.
+ * What this function owns, and its exact complement.
+ *
+ * Both `alias_match` and `explicit` rows are derived — the first from the
+ * prose, the second from the document's marks — so both are rewritten here.
+ * `explicit` used to be preserved unconditionally because nothing produced it;
+ * now that `@` insert does, preserving it would mean a link survived the
+ * deletion of the word it pointed at.
+ *
+ * A `confirmed` row is the writer's judgement and outlives any rebuild. So does
+ * any other method: an `inferred` row will come from a model pass that cannot
+ * be re-derived from the text, and clobbering it on the next keystroke would
+ * throw away work that costs money to produce.
+ *
+ * `IFNULL` because a NULL `method` must fall on one side or the other rather
+ * than both: a row the delete leaves behind and this query does not report is a
+ * row the insert duplicates.
  */
-const KEPT = `SELECT entity_id FROM mention
-              WHERE scene_id = ? AND NOT (method IS 'alias_match' AND confirmed = 0)`;
-const DERIVED = `DELETE FROM mention
-                 WHERE scene_id = ? AND method IS 'alias_match' AND confirmed = 0`;
+const OWNED = 'IFNULL(method,\'\') IN (\'alias_match\',\'explicit\') AND confirmed = 0';
+const KEPT = `SELECT entity_id FROM mention WHERE scene_id = ? AND NOT (${OWNED})`;
+const DERIVED = `DELETE FROM mention WHERE scene_id = ? AND ${OWNED}`;
 
 /**
  * Rewrite `mention` and `scene_fts` for one scene, in a single transaction.
@@ -56,6 +75,12 @@ export async function indexScene(
   const { mentions } = detectMentions(scene.contentText ?? '', aliases, {
     sceneRank: scene.globalRank,
     povEntityId: scene.povEntityId,
+    explicitSpans: entityLinksFrom(scene.contentJson).map((link) => ({
+      entityId: link.entityId,
+      alias: link.text,
+      start: link.start,
+      end: link.end,
+    })),
   });
 
   const now = Date.now();

@@ -32,6 +32,12 @@ export interface MentionSpan {
   alias: string;
   start: number;
   end: number;
+  /**
+   * True when the writer pointed at this entity rather than the matcher
+   * finding it. Set by an `@` insert, which is the only way to link an alias
+   * two entities share — those are ambiguous and `detectSpans` refuses them.
+   */
+  explicit?: boolean;
 }
 
 export interface MentionRow {
@@ -41,7 +47,8 @@ export interface MentionRow {
   startOffset: number;
   endOffset: number;
   aliasUsed: string;
-  method: 'alias_match';
+  /** `explicit` when any of this entity's spans was placed by the writer. */
+  method: 'alias_match' | 'explicit';
   occurrences: number;
 }
 
@@ -52,6 +59,16 @@ export interface DetectOptions {
   povEntityId?: string | null;
   /** At or above this many occurrences, an entity is 'present' not 'mentioned'. */
   presentThreshold?: number;
+  /**
+   * Links the writer placed by hand, merged with what the matcher finds.
+   *
+   * Passed in rather than detected here because they live in the stored
+   * document's marks, not in its text — and they go through this function
+   * rather than being appended by the caller so that one implementation
+   * decides every role. Two places computing "is this entity present" would
+   * disagree the first time the rule changed.
+   */
+  explicitSpans?: readonly MentionSpan[];
 }
 
 const DEFAULT_PRESENT_THRESHOLD = 2;
@@ -143,8 +160,18 @@ export function detectMentions(
   aliases: readonly AliasEntry[],
   options: DetectOptions = {},
 ): { spans: MentionSpan[]; mentions: MentionRow[] } {
-  const spans = detectSpans(text, aliases, options);
+  const found = detectSpans(text, aliases, options);
   const threshold = options.presentThreshold ?? DEFAULT_PRESENT_THRESHOLD;
+
+  // An explicitly linked word is often also an alias the matcher found. Keep
+  // the writer's span and drop the overlapping match, or the entity would be
+  // counted twice and read as more present than it is.
+  const explicit = (options.explicitSpans ?? []).map((s) => ({ ...s, explicit: true }));
+  const overlaps = (a: MentionSpan, b: MentionSpan) => a.start < b.end && b.start < a.end;
+  const spans = [
+    ...explicit,
+    ...found.filter((f) => !explicit.some((e) => overlaps(e, f))),
+  ].sort((a, b) => a.start - b.start);
 
   const grouped = new Map<string, MentionSpan[]>();
   for (const s of spans) {
@@ -164,7 +191,7 @@ export function detectMentions(
       startOffset: first.start,
       endOffset: first.end,
       aliasUsed: first.alias,
-      method: 'alias_match',
+      method: hits.some((h) => h.explicit) ? 'explicit' : 'alias_match',
       occurrences: hits.length,
     });
   }

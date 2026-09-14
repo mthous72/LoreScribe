@@ -124,7 +124,7 @@ async function rebuildMentions(
 ): Promise<number> {
   const aliases = await loadAliases(driver, projectId);
   const { rows } = await driver.query(
-    `SELECT s.id, s.title, s.content_text, s.global_rank, s.pov_entity_id
+    `SELECT s.id, s.title, s.content_text, s.global_rank, s.pov_entity_id, s.content_json
      FROM scene s JOIN chapter c ON c.id = s.chapter_id JOIN book b ON b.id = c.book_id
      WHERE b.project_id = ? AND s.deleted_at IS NULL
      ORDER BY s.global_rank`, [projectId], 'all');
@@ -134,6 +134,7 @@ async function rebuildMentions(
     contentText: r[2] as string | null,
     globalRank: r[3] as string | null,
     povEntityId: r[4] as string | null,
+    contentJson: r[5] as string | null,
   }));
 
   // One scene at a time, through the same function the write path uses. A
