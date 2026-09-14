@@ -451,6 +451,14 @@ limit. Auto-scroll and collision strategies are most of what a library would buy
 so the day a writer needs to drag a scene twenty chapters is the day to take
 dnd-kit and delete `src/ui/useReorder.ts`.
 
+**Confirmed on a real phone, 2026-09-14.** The manuscript tree, a drag reorder
+by thumb, the editor and the codex were all exercised on Android Chrome against
+the deployed Pages origin. This is the decision being tested where it was
+placed rather than somewhere convenient: the entire argument for pointer events
+over the HTML5 API is that `dragstart` is never dispatched by a touch, and a
+desktop pass would have proved nothing about it. [D15](10-decisions.md)'s "the
+phone is a peer, not a viewer" is now a result rather than an intention.
+
 
 ### D23 — Migration 001 is frozen, and the suite now runs an old database forward
 *Reverses the R8 rule in [doc 15 §2](15-phase-0-plan.md). Recorded because that
