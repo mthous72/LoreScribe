@@ -5,6 +5,7 @@ import { useReorder, type DropTarget } from '../ui/useReorder';
 import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
 import { SceneCast } from './SceneCast';
+import { SceneDetails } from './SceneDetails';
 import { SceneVersions } from './SceneVersions';
 
 /**
@@ -311,13 +312,26 @@ export function ManuscriptPage() {
           <>
             <SceneEditor
               projectId={projectId} scene={openScene} reloadToken={contentToken} />
+            <SceneDetails
+              // Namespaced: keys only have to be unique among siblings, and
+              // these panels are siblings. Two of them keyed on the same scene
+              // id let React reuse one's state for the other.
+              key={`details:${openScene.id}`}
+              projectId={projectId}
+              sceneId={openScene.id}
+              // POV feeds the editor's mention decorations, which are compiled
+              // into the extension list — so the editor has to be rebuilt, the
+              // same way a restored draft rebuilds it.
+              onPovChanged={() => { setContentToken((n) => n + 1); reload(); }}
+            />
             <SceneCast projectId={projectId} sceneId={openScene.id} />
             <SceneVersions
               // Keyed on the scene: the chosen comparison, the last message and
               // a half-typed draft name all belong to the scene they were made
               // in, and carrying them across would point the pickers at drafts
-              // the new scene does not have.
-              key={openScene.id}
+              // the new scene does not have. Namespaced so it cannot collide
+              // with a sibling panel keyed on the same scene.
+              key={`versions:${openScene.id}`}
               projectId={projectId}
               scene={openScene}
               onRestored={() => { setContentToken((n) => n + 1); reload(); }}

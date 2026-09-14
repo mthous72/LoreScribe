@@ -20,7 +20,16 @@ async function query(page: Page, sql: string, params: unknown[] = []): Promise<u
 }
 
 const surface = (page: Page) => page.locator('.prose-editor');
-const options = (page: Page) => page.getByRole('option');
+/**
+ * The `@` picker's options, scoped to the picker.
+ *
+ * A bare `getByRole('option')` also matches every `<option>` of every native
+ * `<select>` on the page, which is only ever correct while the page has none.
+ * Scoped to the listbox by its accessible name, so a dropdown added elsewhere
+ * on the screen cannot make this test lie in either direction.
+ */
+const options = (page: Page) =>
+  page.getByRole('listbox', { name: 'Link to a codex entry' }).getByRole('option');
 
 /** A project with one empty scene and the named codex entries. */
 async function project(page: Page, names: string[]): Promise<void> {
