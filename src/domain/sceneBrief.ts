@@ -32,13 +32,17 @@ import {
 } from './factVisibility';
 import type { MentionRole } from './mentions';
 
-/** How much of an entity the brief will carry. Step 5 renders to this. */
+/**
+ * How much of an entity the brief will carry. Step 1 decides it from the role
+ * in this scene; `renderDossiers` is where it is spent, and the table in that
+ * step's header is the one statement of what each size includes.
+ */
 export type DossierDepth =
-  /** Everything: description, filtered facts, voice notes. */
+  /** Everything there is. */
   | 'full'
-  /** The standard entry: summary and description, no voice notes. */
+  /** The standard entry — everything but the voice notes. */
   | 'standard'
-  /** One line and nothing else — referred to, not on stage. */
+  /** Referred to, not on stage: the one line, and why they came up. */
   | 'name-only';
 
 /** Why this entity is in the brief at all. Shown in the inspector. */
@@ -630,4 +634,191 @@ export function attachFacts(input: AttachInput): Briefed {
       || a.factId.localeCompare(b.factId));
 
   return { ...expanded, facts, negative };
+}
+
+/* ----------------------------------------------- step 5: render the dossiers */
+
+/**
+ * Step 5 — each entity becomes an entry sized to what it is in this scene.
+ *
+ * **Doc 03 says "sized by `importance`", and this sizes by `depth`.** The two
+ * sentences are in the same document and they contradict each other: step 1
+ * says *weighted by the mention's role in this scene rather than by book-level
+ * importance*, and step 5 says the opposite. Step 1 is the one the project is
+ * built on — a protagonist named in passing gets one line, a background clerk
+ * who holds the point of view gets everything — so `depth`, which step 1
+ * computed from the role and step 2 assigned to everyone it dragged in, is what
+ * sizes the entry. Reading step 5 literally would undo step 1 at the last
+ * moment and hand the model a full dossier on somebody who is not in the room,
+ * which is precisely the big-context behaviour this pipeline exists to beat.
+ *
+ * What each size carries:
+ *
+ * | | summary | description | facts | links | voice |
+ * |---|---|---|---|---|---|
+ * | `full` | ✓ | ✓ | ✓ | ✓ | ✓ |
+ * | `standard` | ✓ | ✓ | ✓ | ✓ | |
+ * | `name-only` | ✓ | | | ✓ | |
+ *
+ * A name-only entry keeps its links, and that is deliberate: step 2 admitted
+ * most of these *because* of a link, and a bare name with no reason to be in
+ * the brief costs the same tokens while telling the model nothing. "Renn —
+ * Ilva's sister" is the one line.
+ *
+ * **Two columns are deliberately not rendered, for the same reason.**
+ * `entity.status` (`alive | dead | destroyed`) and `entity.attributes` carry no
+ * rank. They are the state of the world at the end of the book, so putting
+ * either into a brief compiled for chapter five announces a death the reader
+ * has not reached — the same failure as an unfiltered secret relationship in
+ * step 2, arriving through a column nobody thinks of as temporal. A death that
+ * matters is a fact, facts have ranks, and step 3 has already decided whether
+ * this scene may know about it.
+ *
+ * **Aliases are rank-filtered, because the schema says they can be spoilers.**
+ * `entity_alias.linkable_from_scene_id` exists for exactly one case, and the
+ * schema names it: *an alias may itself be a spoiler ("the Grey Warden" ==
+ * Kaelen, ch.20)*. An alias list assembled without that filter would equate the
+ * two in chapter five inside the very section meant to help the model use the
+ * right name.
+ */
+
+/** An `entity_alias` row with its gate resolved to a rank. */
+export interface AliasRow {
+  entityId: string;
+  alias: string;
+  kind: string | null;
+  /** From `linkable_from_scene_id`. Null = usable from the start. */
+  linkableFromRank: string | null;
+}
+
+/**
+ * A voice law, already narrowed by the caller.
+ *
+ * These are `law` rows with `category = 'voice'`: entity-scoped ones for
+ * everybody, and `pov`-scoped ones only when that entity holds the point of
+ * view. The repository knows the scene's POV and does that narrowing; this step
+ * only decides who is important enough to spend the lines on. Step 8 gathers
+ * the laws covering the scene and must not list these again.
+ */
+export interface VoiceNote {
+  entityId: string;
+  title: string;
+  ruleText: string;
+  /** must | should | prefer. */
+  severity: string;
+}
+
+export interface DossierLink {
+  otherEntityId: string;
+  otherName: string;
+  kind: string;
+  label: string | null;
+  strength: number | null;
+}
+
+export interface Dossier {
+  entityId: string;
+  name: string;
+  typeKey: string;
+  /** Book-level. Carried for step 9's trim, never used to size this entry. */
+  importance: string;
+  role: MentionRole;
+  depth: DossierDepth;
+  via: SeedVia;
+  /** The name the prose actually used, when the mention index caught one. */
+  aliasUsed: string | null;
+  /** Other names, already filtered to the ones usable by this point. */
+  aliases: string[];
+  summary: string | null;
+  /** `full` and `standard` only. */
+  description: string | null;
+  /** Everything step 3 admitted about this entity, in its order. */
+  facts: BriefFact[];
+  /** What this entity is to others in the brief. */
+  links: DossierLink[];
+  /** `full` only. */
+  voice: VoiceNote[];
+}
+
+export interface Dossiered extends Briefed {
+  /** Cast first, then setting — the order steps 1 and 2 put them in. */
+  dossiers: Dossier[];
+}
+
+export interface DossierInput {
+  briefed: Briefed;
+  /** The scene's `global_rank`, for the alias gate. */
+  atRank: string;
+  aliases?: readonly AliasRow[];
+  voiceNotes?: readonly VoiceNote[];
+}
+
+export function renderDossiers(input: DossierInput): Dossiered {
+  const { briefed, atRank } = input;
+  const people = [...briefed.cast, ...briefed.setting];
+  const nameOf = new Map(people.map((e) => [e.entityId, e.name]));
+
+  const factsFor = new Map<string, BriefFact[]>();
+  for (const f of briefed.facts) {
+    const held = factsFor.get(f.subjectEntityId);
+    if (held) held.push(f);
+    else factsFor.set(f.subjectEntityId, [f]);
+  }
+
+  const aliasFor = new Map<string, string[]>();
+  for (const a of input.aliases ?? []) {
+    if (a.linkableFromRank !== null && a.linkableFromRank > atRank) continue;
+    const held = aliasFor.get(a.entityId) ?? [];
+    held.push(a.alias);
+    aliasFor.set(a.entityId, held);
+  }
+
+  const voiceFor = new Map<string, VoiceNote[]>();
+  for (const v of input.voiceNotes ?? []) {
+    const held = voiceFor.get(v.entityId) ?? [];
+    held.push(v);
+    voiceFor.set(v.entityId, held);
+  }
+
+  // A link whose other end never resolved has no name to render. It is already
+  // named in `unresolved`, which is where a missing row belongs.
+  const linksFor = (id: string): DossierLink[] => {
+    const out: DossierLink[] = [];
+    for (const l of briefed.links) {
+      const other = l.fromEntityId === id ? l.toEntityId
+        : l.toEntityId === id ? l.fromEntityId : null;
+      if (other === null) continue;
+      const name = nameOf.get(other);
+      if (name === undefined) continue;
+      out.push({
+        otherEntityId: other, otherName: name,
+        kind: l.kind, label: l.label, strength: l.strength,
+      });
+    }
+    return out;
+  };
+
+  const dossiers = people.map((e): Dossier => {
+    const thin = e.depth === 'name-only';
+    const aliases = [...new Set(aliasFor.get(e.entityId) ?? [])]
+      .filter((a) => a.toLowerCase() !== e.name.toLowerCase());
+    return {
+      entityId: e.entityId,
+      name: e.name,
+      typeKey: e.typeKey,
+      importance: e.importance,
+      role: e.role,
+      depth: e.depth,
+      via: e.via,
+      aliasUsed: e.aliasUsed ?? null,
+      aliases: thin ? [] : aliases,
+      summary: e.summary,
+      description: thin ? null : e.description,
+      facts: thin ? [] : (factsFor.get(e.entityId) ?? []),
+      links: linksFor(e.entityId),
+      voice: e.depth === 'full' ? (voiceFor.get(e.entityId) ?? []) : [],
+    };
+  });
+
+  return { ...briefed, dossiers };
 }

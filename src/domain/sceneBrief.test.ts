@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  attachFacts, expandOneHop, seedBrief,
-  type BeatRow, type EntityRow, type FactRow, type RelationshipRow, type SeedInput,
+  attachFacts, expandOneHop, renderDossiers, seedBrief,
+  type AliasRow, type BeatRow, type Dossier, type DossierInput, type EntityRow,
+  type FactRow, type RelationshipRow, type SeedInput,
 } from './sceneBrief';
 
 /**
@@ -678,5 +679,225 @@ describe('what the step refuses to decide', () => {
     const before = JSON.stringify(expanded);
     withFacts([fact('f1', 'Ilva'), fact('f2', 'nobody-at-all')], expanded);
     expect(JSON.stringify(expanded)).toBe(before);
+  });
+});
+
+/* ----------------------------------------------- step 5: render the dossiers */
+
+/**
+ * The step where doc 03 contradicts itself: step 1 sizes by the role in this
+ * scene, step 5 says `importance`. Most of what follows is about which of the
+ * two won, because reading step 5 literally would undo step 1 at the last
+ * moment — and the suite would still be green, since every earlier test stops
+ * at `depth`.
+ */
+
+const briefed = (
+  over: Partial<SeedInput> = {},
+  relationships: RelationshipRow[] = [],
+  facts: FactRow[] = [],
+  entities?: Map<string, EntityRow>,
+) => {
+  const world_ = entities ?? over.entities as Map<string, EntityRow>;
+  const expanded = expandOneHop({
+    seed: seedBrief(input({ ...over, entities: world_ })),
+    atRank: 'a1a1a1', relationships, entities: world_,
+  });
+  return attachFacts({ expanded, atRank: 'a1a1a1', facts });
+};
+
+const dossiers = (b: ReturnType<typeof briefed>, rest: Partial<DossierInput> = {}) =>
+  renderDossiers({ briefed: b, atRank: 'a1a1a1', ...rest }).dossiers;
+
+const find = (list: Dossier[], name: string) => list.find((d) => d.name === name);
+
+describe('how large an entry gets', () => {
+  it('sizes by the part played here, not by the part played in the book', () => {
+    // The clerk holds the point of view and gets everything; the protagonist is
+    // named in passing and gets a line. Doc 03 step 5 read literally reverses
+    // both, and nothing earlier in this file would notice.
+    const world_ = new Map([
+      ['clerk', entity('clerk', { importance: 'background' })],
+      ['hero', entity('hero', { importance: 'protagonist' })],
+    ]);
+    const out = dossiers(briefed({
+      scene: { ...input().scene, povEntityId: 'clerk' },
+      mentions: [{ entityId: 'hero', role: 'mentioned' }],
+    }, [], [], world_));
+
+    expect(find(out, 'clerk')).toMatchObject({
+      depth: 'full', description: 'clerk, at length.', importance: 'background',
+    });
+    expect(find(out, 'hero')).toMatchObject({
+      depth: 'name-only', description: null, importance: 'protagonist',
+    });
+  });
+
+  it('gives a full entry its voice notes and a standard entry none', () => {
+    const voiceNotes = [
+      { entityId: 'Ilva', title: 'Clipped', ruleText: 'She does not explain.', severity: 'must' },
+      { entityId: 'Renn', title: 'Warm', ruleText: 'He over-explains.', severity: 'should' },
+    ];
+    const out = dossiers(briefed({
+      scene: { ...input().scene, povEntityId: 'Ilva' },
+      mentions: [{ entityId: 'Renn', role: 'present' }],
+      entities: world('Ilva', 'Renn'),
+    }), { voiceNotes });
+
+    expect(find(out, 'Ilva')?.voice.map((v) => v.title)).toEqual(['Clipped']);
+    expect(find(out, 'Renn')).toMatchObject({ depth: 'standard', voice: [] });
+    expect(find(out, 'Renn')?.description).toBe('Renn, at length.');
+  });
+
+  it('gives a standard entry its facts', () => {
+    const out = dossiers(briefed(
+      {
+        mentions: [{ entityId: 'Renn', role: 'present' }],
+        entities: world('Renn'),
+      },
+      [],
+      [fact('f1', 'Renn')],
+    ));
+    expect(find(out, 'Renn')?.facts.map((f) => f.factId)).toEqual(['f1']);
+  });
+
+  it('gives a name-only entry its line and nothing else', () => {
+    const out = dossiers(briefed(
+      {
+        mentions: [{ entityId: 'Renn', role: 'mentioned' }],
+        entities: world('Renn'),
+      },
+      [],
+      [fact('f1', 'Renn')],
+    ));
+    expect(find(out, 'Renn')).toMatchObject({
+      summary: 'Renn, in one line.',
+      description: null,
+      facts: [],
+      aliases: [],
+      voice: [],
+    });
+  });
+
+  it('puts each fact under the entity it is about', () => {
+    const out = dossiers(briefed(
+      {
+        scene: { ...input().scene, povEntityId: 'Ilva' },
+        mentions: [{ entityId: 'Renn', role: 'present' }],
+        entities: world('Ilva', 'Renn'),
+      },
+      [],
+      [fact('f-ilva', 'Ilva'), fact('f-renn', 'Renn')],
+    ));
+    expect(find(out, 'Ilva')?.facts.map((f) => f.factId)).toEqual(['f-ilva']);
+    expect(find(out, 'Renn')?.facts.map((f) => f.factId)).toEqual(['f-renn']);
+  });
+});
+
+describe('the line that says why somebody came up', () => {
+  it('keeps a name-only entry’s links', () => {
+    // Step 2 admitted them *because* of the link. A bare name with no reason to
+    // be in the brief costs the same tokens and says nothing.
+    const out = dossiers(briefed(
+      {
+        scene: { ...input().scene, povEntityId: 'Ilva' },
+        entities: world('Ilva', 'Renn'),
+      },
+      [rel('Ilva', 'Renn', { label: 'sister of' })],
+    ));
+    expect(find(out, 'Renn')).toMatchObject({ depth: 'name-only', description: null });
+    expect(find(out, 'Renn')?.links).toEqual([{
+      otherEntityId: 'Ilva', otherName: 'Ilva', kind: 'family',
+      label: 'sister of', strength: 3,
+    }]);
+  });
+
+  it('names the other end whichever way the row was typed in', () => {
+    const out = dossiers(briefed(
+      {
+        scene: { ...input().scene, povEntityId: 'Ilva' },
+        entities: world('Ilva', 'Renn'),
+      },
+      [rel('Renn', 'Ilva')],
+    ));
+    expect(find(out, 'Ilva')?.links[0]?.otherName).toBe('Renn');
+    expect(find(out, 'Renn')?.links[0]?.otherName).toBe('Ilva');
+  });
+
+  it('drops a link whose other end never resolved', () => {
+    const b = briefed(
+      {
+        scene: { ...input().scene, povEntityId: 'Ilva' },
+        entities: world('Ilva'),
+      },
+      [rel('Ilva', 'ghost')],
+    );
+    expect(b.unresolved).toEqual([{ kind: 'entity', id: 'ghost' }]);
+    expect(dossiers(b)[0]?.links).toEqual([]);
+  });
+});
+
+describe('the names an entity answers to', () => {
+  const aliasesOf = (rows: AliasRow[]) => {
+    const out = dossiers(briefed({
+      scene: { ...input().scene, povEntityId: 'Kaelen' },
+      entities: world('Kaelen'),
+    }), { aliases: rows });
+    return out[0]?.aliases;
+  };
+
+  it('holds back one the reader cannot make yet', () => {
+    // The schema names this case itself: an alias may be a spoiler, and "the
+    // Grey Warden is Kaelen" inside the section meant to help the model pick
+    // the right name is the worst place to give it away.
+    expect(aliasesOf([
+      { entityId: 'Kaelen', alias: 'the Grey Warden', kind: 'epithet', linkableFromRank: 'z9' },
+      { entityId: 'Kaelen', alias: 'Kae', kind: 'nickname', linkableFromRank: null },
+    ])).toEqual(['Kae']);
+  });
+
+  it('allows one the book has already made', () => {
+    expect(aliasesOf([
+      { entityId: 'Kaelen', alias: 'the Grey Warden', kind: 'epithet', linkableFromRank: 'a0' },
+    ])).toEqual(['the Grey Warden']);
+  });
+
+  it('allows one this very scene makes', () => {
+    // The same convention a revealed fact takes: at or before the rank means
+    // available. The scene where the alias becomes usable is the scene that
+    // reveals it, and refusing it there would make the reveal unwritable.
+    expect(aliasesOf([
+      { entityId: 'Kaelen', alias: 'the Grey Warden', kind: 'epithet', linkableFromRank: 'a1a1a1' },
+    ])).toEqual(['the Grey Warden']);
+  });
+
+  it('does not repeat the name it already has', () => {
+    expect(aliasesOf([
+      { entityId: 'Kaelen', alias: 'KAELEN', kind: 'name', linkableFromRank: null },
+      { entityId: 'Kaelen', alias: 'Kae', kind: 'nickname', linkableFromRank: null },
+      { entityId: 'Kaelen', alias: 'Kae', kind: 'nickname', linkableFromRank: null },
+    ])).toEqual(['Kae']);
+  });
+});
+
+describe('the shape of the rendered brief', () => {
+  it('runs the cast first and the setting after it', () => {
+    const out = dossiers(briefed({
+      scene: { ...input().scene, povEntityId: 'Ilva', locationEntityId: 'the Kiln' },
+      mentions: [{ entityId: 'Renn', role: 'present' }],
+      entities: world('Ilva', 'Renn', 'the Kiln'),
+    }));
+    expect(out.map((d) => d.name)).toEqual(['Ilva', 'Renn', 'the Kiln']);
+    expect(find(out, 'the Kiln')?.via).toBe('location');
+  });
+
+  it('leaves the brief it was given intact', () => {
+    const b = briefed({
+      scene: { ...input().scene, povEntityId: 'Ilva' },
+      entities: world('Ilva', 'Renn'),
+    }, [rel('Ilva', 'Renn')], [fact('f1', 'Ilva')]);
+    const before = JSON.stringify(b);
+    renderDossiers({ briefed: b, atRank: 'a1a1a1' });
+    expect(JSON.stringify(b)).toBe(before);
   });
 });
