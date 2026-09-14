@@ -607,6 +607,20 @@ describe('what must not be said', () => {
     expect(out.negative).toEqual([]);
   });
 
+  it('still records the light one as excluded, and why', () => {
+    // Too light to spend a line forbidding it, but still a fact the reader has
+    // not been told. Step 7 excludes on this list, not on `negative`.
+    const out = withFacts([
+      fact('light', 'Renn', { revealedRank: null, spoilerWeight: 1 }),
+      fact('gone', 'Renn', { invalidatedRank: 'a0' }),
+      fact('fine', 'Renn'),
+    ]);
+    expect(out.excluded).toEqual([
+      { factId: 'light', status: 'withheld' },
+      { factId: 'gone', status: 'invalidated' },
+    ]);
+  });
+
   it('says nothing about people who are not here', () => {
     // Doc 03 is careful about the budget, and a secret about somebody absent is
     // not a thing this scene was going to mention.

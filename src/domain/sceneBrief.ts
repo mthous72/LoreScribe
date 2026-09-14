@@ -519,11 +519,24 @@ export interface NegativeFact {
   status: FactStatus;
 }
 
+/** A fact of the working set that was judged and kept out, and why. */
+export interface ExcludedFact {
+  factId: string;
+  status: FactStatus;
+}
+
 export interface Briefed extends Expanded {
   /** What may be used, most important to this scene first. */
   facts: BriefFact[];
   /** What must not be said, heaviest first. */
   negative: NegativeFact[];
+  /**
+   * Everything judged and kept out — the heavy ones in `negative` and the rest.
+   * Step 7 needs the whole list: a withheld fact too light for the negative
+   * block is still a fact the reader has not been told, and a semantic hit on
+   * it would otherwise carry it straight past the filter that rejected it.
+   */
+  excluded: ExcludedFact[];
 }
 
 export interface AttachInput {
@@ -588,9 +601,13 @@ export function attachFacts(input: AttachInput): Briefed {
     f.subjectEntityId !== null && order.has(f.subjectEntityId));
 
   const facts: BriefFact[] = [];
+  const excluded: ExcludedFact[] = [];
   for (const f of mine) {
     const seen = visibility.get(f.id);
-    if (!seen?.include) continue;
+    if (!seen?.include) {
+      excluded.push({ factId: f.id, status: seen?.status ?? 'withheld' });
+      continue;
+    }
     facts.push({
       factId: f.id,
       subjectEntityId: f.subjectEntityId as string,
@@ -633,7 +650,7 @@ export function attachFacts(input: AttachInput): Briefed {
       || (order.get(a.subjectEntityId) ?? 0) - (order.get(b.subjectEntityId) ?? 0)
       || a.factId.localeCompare(b.factId));
 
-  return { ...expanded, facts, negative };
+  return { ...expanded, facts, negative, excluded };
 }
 
 /* ----------------------------------------------- step 5: render the dossiers */
