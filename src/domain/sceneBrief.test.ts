@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  expandOneHop, seedBrief,
-  type BeatRow, type EntityRow, type RelationshipRow, type SeedInput,
+  attachFacts, expandOneHop, seedBrief,
+  type BeatRow, type EntityRow, type FactRow, type RelationshipRow, type SeedInput,
 } from './sceneBrief';
 
 /**
@@ -454,5 +454,229 @@ describe('what the hop does with what it cannot answer', () => {
     }));
     const out = expand(seed, [rel('Zzz', 'Aaa')], ['Zzz', 'Aaa']);
     expect(out.cast.map((c) => c.name)).toEqual(['Zzz', 'Aaa']);
+  });
+});
+
+/* --------------------------------------- step 3: the facts, filtered in time */
+
+/**
+ * The two filters themselves belong to `factVisibility` and are tested there
+ * exhaustively; repeating them here would be the second statement of a rule
+ * that must only have one. What is tested here is the part doc 03 leaves to the
+ * compiler: which facts get asked about, what happens to the answers, and the
+ * three decisions the step had to make on its own — selection by subject,
+ * subject-less facts as laws rather than facts, and only `knows` counting as
+ * knowledge.
+ */
+
+const fact = (id: string, subject: string | null, over: Partial<FactRow> = {}): FactRow => ({
+  id,
+  subjectEntityId: subject,
+  objectEntityId: null,
+  predicate: 'is',
+  statement: `${id}: a true thing about ${subject ?? 'nobody'}.`,
+  certainty: 'canon',
+  spoilerWeight: 0,
+  isDramaticIrony: false,
+  establishedRank: 'a0',
+  revealedRank: 'a0',
+  invalidatedRank: null,
+  supersedesFactId: null,
+  ...over,
+});
+
+/** A scene with `Ilva` as the point of view and `Renn` named in passing. */
+const scene = () => expandOneHop({
+  seed: seedBrief(input({
+    scene: { ...input().scene, povEntityId: 'Ilva' },
+    mentions: [{ entityId: 'Renn', role: 'mentioned' }],
+    entities: world('Ilva', 'Renn'),
+  })),
+  atRank: 'a1a1a1',
+  relationships: [],
+  entities: world('Ilva', 'Renn'),
+});
+
+const withFacts = (facts: FactRow[], expanded = scene()) =>
+  attachFacts({ expanded, atRank: expanded.scene.globalRank, facts });
+
+describe('which facts the brief asks about', () => {
+  it('takes a fact by its subject', () => {
+    const out = withFacts([fact('f1', 'Ilva')]);
+    expect(out.facts.map((f) => f.factId)).toEqual(['f1']);
+  });
+
+  it('does not take one merely pointed at', () => {
+    // "Ilva is the Warden's sister" with only the Warden in the room would
+    // arrive with no dossier to sit under, naming somebody who is not in the
+    // brief. Step 2's links already say what the two are to each other.
+    const out = withFacts([fact('f1', 'Ossa', { objectEntityId: 'Ilva' })]);
+    expect(out.facts).toEqual([]);
+  });
+
+  it('leaves a fact with no subject to the laws', () => {
+    const out = withFacts([fact('f1', null)]);
+    expect(out.facts).toEqual([]);
+  });
+
+  it('takes facts about the place as readily as about the people', () => {
+    const expanded = expandOneHop({
+      seed: seedBrief(input({
+        scene: { ...input().scene, locationEntityId: 'the Kiln' },
+        entities: world('the Kiln'),
+      })),
+      atRank: 'a1a1a1', relationships: [], entities: world('the Kiln'),
+    });
+    const out = withFacts([fact('f1', 'the Kiln')], expanded);
+    expect(out.facts.map((f) => f.factId)).toEqual(['f1']);
+  });
+
+  it('judges supersession against facts from outside the working set', () => {
+    // Supersession is a relation. Selecting first and judging afterwards would
+    // leave a replaced fact looking current whenever its replacement happens to
+    // be about somebody who is not in the room.
+    const out = withFacts([
+      fact('old', 'Ilva'),
+      fact('new', 'outsider', { supersedesFactId: 'old' }),
+    ]);
+    expect(out.facts).toEqual([]);
+  });
+});
+
+describe('what the point of view is taken to know', () => {
+  const secret = (over: Partial<FactRow> = {}) =>
+    fact('f1', 'Renn', { revealedRank: null, spoilerWeight: 1, ...over });
+
+  it('admits a fact the point of view knows, and says so', () => {
+    const out = withFacts([secret({
+      knowledge: [{ entityId: 'Ilva', belief: 'knows', knownFromRank: 'a0' }],
+    })]);
+    expect(out.facts[0]).toMatchObject({ status: 'pov-knows', povBelief: 'knows' });
+  });
+
+  it('does not admit one the point of view merely suspects', () => {
+    // Suspecting is not knowing. Admitting it would let the model write as
+    // settled a thing the character has not worked out yet.
+    const out = withFacts([secret({
+      knowledge: [{ entityId: 'Ilva', belief: 'suspects', knownFromRank: 'a0' }],
+    })]);
+    expect(out.facts).toEqual([]);
+  });
+
+  it('does not admit one the point of view believes false', () => {
+    const out = withFacts([secret({
+      knowledge: [{ entityId: 'Ilva', belief: 'believes_false', knownFromRank: 'a0' }],
+    })]);
+    expect(out.facts).toEqual([]);
+  });
+
+  it('keeps the belief on a fact the reader already has', () => {
+    // She is wrong about something the reader was told in chapter one, and that
+    // is the scene. Discarding the column would lose it.
+    const out = withFacts([fact('f1', 'Renn', {
+      knowledge: [{ entityId: 'Ilva', belief: 'believes_false', knownFromRank: 'a0' }],
+    })]);
+    expect(out.facts[0]).toMatchObject({ status: 'reader-knows', povBelief: 'believes_false' });
+  });
+
+  it('carries no belief for somebody else’s knowledge', () => {
+    const out = withFacts([fact('f1', 'Renn', {
+      knowledge: [{ entityId: 'Ossa', belief: 'knows', knownFromRank: 'a0' }],
+    })]);
+    expect(out.facts[0]?.povBelief).toBeNull();
+  });
+});
+
+describe('what must not be said', () => {
+  it('names a heavy secret about somebody in the scene', () => {
+    const out = withFacts([
+      fact('f1', 'Renn', { revealedRank: null, spoilerWeight: 3 }),
+    ]);
+    expect(out.facts).toEqual([]);
+    expect(out.negative).toEqual([{
+      factId: 'f1', subjectEntityId: 'Renn', spoilerWeight: 3,
+      statement: 'f1: a true thing about Renn.', status: 'withheld',
+    }]);
+  });
+
+  it('leaves a light one out of the budget', () => {
+    const out = withFacts([
+      fact('f1', 'Renn', { revealedRank: null, spoilerWeight: 1 }),
+    ]);
+    expect(out.negative).toEqual([]);
+  });
+
+  it('says nothing about people who are not here', () => {
+    // Doc 03 is careful about the budget, and a secret about somebody absent is
+    // not a thing this scene was going to mention.
+    const out = withFacts([
+      fact('f1', 'stranger', { revealedRank: null, spoilerWeight: 3 }),
+    ]);
+    expect(out.negative).toEqual([]);
+  });
+
+  it('puts the heaviest first', () => {
+    // Named against the alphabet on purpose: the last tie-break is the id, and
+    // ids that agree with the key under test would let it be dropped entirely.
+    const out = withFacts([
+      fact('a-light', 'Renn', { revealedRank: null, spoilerWeight: 2 }),
+      fact('z-heavy', 'Renn', { revealedRank: null, spoilerWeight: 3 }),
+    ]);
+    expect(out.negative.map((n) => n.factId)).toEqual(['z-heavy', 'a-light']);
+  });
+
+  it('distinguishes a secret from an unwritten future', () => {
+    // Both are excluded and both are dangerous, but they read differently: one
+    // is true and untold, the other is not true yet — and foreshadowing the
+    // second is the failure the negative block exists to stop.
+    const out = withFacts([
+      fact('later', 'Renn', {
+        establishedRank: 'z9', revealedRank: 'z9', spoilerWeight: 3,
+      }),
+    ]);
+    expect(out.negative[0]?.status).toBe('not-yet-established');
+  });
+});
+
+describe('the order the facts arrive in', () => {
+  // Every id below is named against the key under test, because the last
+  // tie-break is the id: ids that happen to agree with the key would let it be
+  // deleted outright with the suite still green.
+  it('puts the scene’s own people first', () => {
+    const out = withFacts([fact('a-renn', 'Renn'), fact('z-ilva', 'Ilva')]);
+    expect(out.facts.map((f) => f.factId)).toEqual(['z-ilva', 'a-renn']);
+  });
+
+  it('then the weightiest', () => {
+    const out = withFacts([
+      fact('a-light', 'Ilva', { spoilerWeight: 0 }),
+      fact('z-heavy', 'Ilva', { spoilerWeight: 3 }),
+    ]);
+    expect(out.facts.map((f) => f.factId)).toEqual(['z-heavy', 'a-light']);
+  });
+
+  it('then the most recently true, with backstory last', () => {
+    const out = withFacts([
+      fact('a-always', 'Ilva', { establishedRank: null }),
+      fact('b-early', 'Ilva', { establishedRank: 'a0' }),
+      fact('c-late', 'Ilva', { establishedRank: 'a1' }),
+    ]);
+    expect(out.facts.map((f) => f.factId)).toEqual(['c-late', 'b-early', 'a-always']);
+  });
+});
+
+describe('what the step refuses to decide', () => {
+  it('carries a speculative fact through rather than judging it', () => {
+    // Dropping it silently and presenting it as canon are both wrong. Labelling
+    // is step 5's job; this step keeps to one.
+    const out = withFacts([fact('f1', 'Ilva', { certainty: 'speculative' })]);
+    expect(out.facts[0]?.certainty).toBe('speculative');
+  });
+
+  it('leaves the expansion it was given intact', () => {
+    const expanded = scene();
+    const before = JSON.stringify(expanded);
+    withFacts([fact('f1', 'Ilva'), fact('f2', 'nobody-at-all')], expanded);
+    expect(JSON.stringify(expanded)).toBe(before);
   });
 });

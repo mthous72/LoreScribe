@@ -26,6 +26,10 @@
  * each.
  */
 
+import {
+  factVisibilityAt, negativeConstraints,
+  type FactForVisibility, type FactStatus,
+} from './factVisibility';
 import type { MentionRole } from './mentions';
 
 /** How much of an entity the brief will carry. Step 5 renders to this. */
@@ -414,4 +418,216 @@ export function expandOneHop(input: ExpandInput): Expanded {
     || a.name.localeCompare(b.name, 'en'));
 
   return { ...seed, cast, links, unresolved };
+}
+
+/* --------------------------------------- step 3: the facts, filtered in time */
+
+/**
+ * Steps 3 and 4 of the brief — the temporal filter and the spoiler filter.
+ *
+ * Both rules already exist, exhaustively tested, in
+ * [`factVisibility`](./factVisibility.ts), and they stay there: *a spoiler rule
+ * implemented twice is a spoiler rule that disagrees with itself, and the
+ * failure mode is telling a reader something the book has not told them yet.*
+ * So this step does not restate either rule. Its job is the part doc 03 leaves
+ * to the compiler — deciding **which facts get asked about**, and what to do
+ * with the answers.
+ *
+ * Three decisions, none of them in doc 03, all of them load-bearing:
+ *
+ * **A fact is selected by its subject.** Doc 03 says *for each entity in the
+ * working set, select facts*, and a `fact` row points at two entities: a
+ * subject and, sometimes, an object. Selecting on either end would pull in
+ * "Ilva is the Warden's sister" when only the Warden is in the room, and step 5
+ * renders facts underneath the entity they are about — so that fact would
+ * arrive with no dossier to sit under, naming somebody who is not in the brief.
+ * What the two entities are to each other is already carried by step 2's
+ * `links`; a fact reached only through its object end is exactly what step 7's
+ * semantic supplement is the safety net for.
+ *
+ * **A fact with no subject is not a fact for a brief.** The column is nullable,
+ * and a subject-less fact is a statement about the world with no dossier to
+ * belong to. That is a law, and laws are step 8.
+ *
+ * **Only `knows` is knowledge.** `fact_knowledge.belief` is one of
+ * `knows | suspects | believes_false | denies`, and `factVisibilityAt` takes a
+ * flat map of who-knows-when — so somebody has to decide which of the four
+ * counts, and this is the only place that sees the column. A POV who *suspects*
+ * a thing does not know it, and one who *believes it false* emphatically does
+ * not; admitting either would let the model write as settled something the
+ * character has not worked out yet, which is the same failure as a spoiler with
+ * a smaller blast radius. The belief is carried through on `povBelief` rather
+ * than discarded, because "she suspects this and is wrong" is worth a line in
+ * step 5 even when the fact itself stays out.
+ *
+ * Certainty (`canon | planned | speculative`) is carried, not filtered. A
+ * speculative fact is one the writer has not settled, and both silently
+ * dropping it and silently presenting it as canon are wrong; labelling it is
+ * step 5's job, and this step keeps to one.
+ */
+
+/** A `v_fact_ranks` row with its `fact_knowledge` rows attached. */
+export interface FactRow {
+  id: string;
+  subjectEntityId: string | null;
+  objectEntityId: string | null;
+  predicate: string;
+  statement: string;
+  /** canon | planned | speculative. Carried, not filtered. */
+  certainty: string;
+  spoilerWeight: number;
+  isDramaticIrony: boolean;
+  establishedRank: string | null;
+  revealedRank: string | null;
+  invalidatedRank: string | null;
+  supersedesFactId: string | null;
+  knowledge?: readonly {
+    entityId: string;
+    /** knows | suspects | believes_false | denies. */
+    belief: string;
+    knownFromRank: string | null;
+  }[];
+}
+
+export type Belief = 'knows' | 'suspects' | 'believes_false' | 'denies';
+
+export interface BriefFact {
+  factId: string;
+  subjectEntityId: string;
+  objectEntityId: string | null;
+  predicate: string;
+  statement: string;
+  certainty: string;
+  spoilerWeight: number;
+  /** `reader-knows`, `dramatic-irony` or `pov-knows` — the three that pass. */
+  status: FactStatus;
+  /** What the point-of-view character makes of it, when they have a view. */
+  povBelief: Belief | null;
+}
+
+/** Doc 03 §4: "do not reveal, hint at, or foreshadow X." */
+export interface NegativeFact {
+  factId: string;
+  subjectEntityId: string;
+  statement: string;
+  spoilerWeight: number;
+  /** Why it is out. A withheld secret and an unwritten future read differently. */
+  status: FactStatus;
+}
+
+export interface Briefed extends Expanded {
+  /** What may be used, most important to this scene first. */
+  facts: BriefFact[];
+  /** What must not be said, heaviest first. */
+  negative: NegativeFact[];
+}
+
+export interface AttachInput {
+  expanded: Expanded;
+  /** The scene's `global_rank`. */
+  atRank: string;
+  /**
+   * Candidate facts. Every fact whose subject is in the working set, **plus any
+   * fact that supersedes one of those** — supersession is a relation, and a
+   * replacement missing from this list leaves the fact it replaces looking
+   * current. Handing over more than that is harmless: selection happens here.
+   */
+  facts: readonly FactRow[];
+}
+
+const KNOWS: Belief = 'knows';
+
+const asBelief = (raw: string): Belief | null =>
+  (['knows', 'suspects', 'believes_false', 'denies'] as const)
+    .find((b) => b === raw) ?? null;
+
+export function attachFacts(input: AttachInput): Briefed {
+  const { expanded, atRank } = input;
+
+  // Position in the working set, which steps 1 and 2 have already sorted by
+  // role in *this scene*. Using it as the first sort key is the same argument
+  // as step 1's: what matters is who this scene is about, not who the book is.
+  const order = new Map<string, number>();
+  [...expanded.cast, ...expanded.setting].forEach((e, i) => {
+    if (!order.has(e.entityId)) order.set(e.entityId, i);
+  });
+
+  const pov = expanded.scene.povEntityId;
+  const beliefOf = (f: FactRow): Belief | null => {
+    if (!pov) return null;
+    const row = f.knowledge?.find((k) => k.entityId === pov);
+    return row ? asBelief(row.belief) : null;
+  };
+
+  const forVisibility: FactForVisibility[] = input.facts.map((f) => {
+    const knownFrom: Record<string, string | null> = {};
+    for (const k of f.knowledge ?? []) {
+      if (k.belief === KNOWS) knownFrom[k.entityId] = k.knownFromRank;
+    }
+    return {
+      id: f.id,
+      establishedRank: f.establishedRank,
+      revealedRank: f.revealedRank,
+      invalidatedRank: f.invalidatedRank,
+      supersedesFactId: f.supersedesFactId,
+      isDramaticIrony: f.isDramaticIrony,
+      spoilerWeight: f.spoilerWeight,
+      knownFrom,
+    };
+  });
+
+  // Judged over everything handed in, so a superseding fact about somebody who
+  // is not in the room still does its work; selected afterwards.
+  const visibility = factVisibilityAt(forVisibility, atRank, { povEntityId: pov });
+
+  const mine = input.facts.filter((f) =>
+    f.subjectEntityId !== null && order.has(f.subjectEntityId));
+
+  const facts: BriefFact[] = [];
+  for (const f of mine) {
+    const seen = visibility.get(f.id);
+    if (!seen?.include) continue;
+    facts.push({
+      factId: f.id,
+      subjectEntityId: f.subjectEntityId as string,
+      objectEntityId: f.objectEntityId,
+      predicate: f.predicate,
+      statement: f.statement,
+      certainty: f.certainty,
+      spoilerWeight: f.spoilerWeight,
+      status: seen.status,
+      povBelief: beliefOf(f),
+    });
+  }
+
+  // Doc 03 §9 trims facts by importance, spoiler weight and recency, from the
+  // tail. Sorting by exactly those three here is what makes that a truncation
+  // rather than a decision taken twice. Recency is the rank the fact became
+  // true, latest first; backstory sorts as the empty string, which is to say
+  // last, because it is the oldest thing in the book.
+  const establishedAt = new Map(mine.map((f) => [f.id, f.establishedRank ?? '']));
+  const since = (id: string) => establishedAt.get(id) ?? '';
+  facts.sort((a, b) =>
+    (order.get(a.subjectEntityId) ?? 0) - (order.get(b.subjectEntityId) ?? 0)
+    || b.spoilerWeight - a.spoilerWeight
+    || since(b.factId).localeCompare(since(a.factId))
+    || a.factId.localeCompare(b.factId));
+
+  const dangerous = new Set(
+    negativeConstraints(forVisibility, visibility).map((f) => f.id));
+  const negative: NegativeFact[] = mine
+    .filter((f) => dangerous.has(f.id))
+    .map((f) => ({
+      factId: f.id,
+      subjectEntityId: f.subjectEntityId as string,
+      statement: f.statement,
+      spoilerWeight: f.spoilerWeight,
+      status: visibility.get(f.id)?.status ?? 'withheld',
+    }))
+    .sort((a, b) =>
+      b.spoilerWeight - a.spoilerWeight
+      || (order.get(a.subjectEntityId) ?? 0) - (order.get(b.subjectEntityId) ?? 0)
+      || a.factId.localeCompare(b.factId));
+
+  return { ...expanded, facts, negative };
 }
