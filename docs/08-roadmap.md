@@ -28,7 +28,8 @@ what the phase contained.
   device, which is the evictable web path rather than the app-private native one.
   The only thing Phase 0 owes Phase 6 is a build base path that is a switch rather
   than a constant ([doc 15 §3d](15-phase-0-plan.md)).
-- `SqlDriver` interface with the sqlite-wasm implementation; Drizzle; the migration
+- `SqlDriver` interface with the sqlite-wasm implementation; Drizzle (carried
+  unused through Phase 1 and removed — [D28](10-decisions.md)); the migration
   runner; `db/schema.sql` as migration 001 — **minus its pragmas**, which are
   per-connection settings that differ by engine and belong in the driver
   ([doc 15 §3a](15-phase-0-plan.md)). A **driver conformance suite** is written

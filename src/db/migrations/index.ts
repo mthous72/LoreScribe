@@ -1,7 +1,8 @@
 // Migration SQL is inlined at BUILD time, never read from disk at run time.
-// That is not a stylistic choice: drizzle-orm/sqlite-proxy/migrator imports
+// That is not a stylistic choice: the ORM migrator this project once planned to
+// use (drizzle-orm/sqlite-proxy/migrator, removed in D28) imports
 // node:fs and node:crypto and cannot run in a browser at all, so migration
-// application sits outside Drizzle entirely. docs/15 §3b.
+// application has always been our own. docs/15 §3b.
 import init001 from '../../../db/schema.sql?raw';
 import seed002 from '../../../db/migrations/002_seed_entity_types.sql?raw';
 import repair003 from '../../../db/migrations/003_repair_schema_drift.sql?raw';

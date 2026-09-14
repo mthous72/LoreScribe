@@ -68,7 +68,7 @@ function run(sql: string, params: unknown[]): void {
   s.reset(true);
 }
 
-/** Rows come back as positional arrays — the shape drizzle sqlite-proxy demands. */
+/** Rows come back as positional arrays — the shape every repository reads. */
 function rows(sql: string, params: unknown[]): unknown[][] {
   const s = prepared(sql);
   if (params.length) s.bind(params);
@@ -194,7 +194,7 @@ async function handle(m: Req): Promise<unknown> {
       return open(m.req);
     case 'exec':
       // Multi-statement SQL needs exec(); prepare() consumes only the first
-      // statement. Schema bootstrap therefore bypasses Drizzle entirely.
+      // statement. Schema bootstrap therefore goes straight to the engine.
       // DDL can invalidate prepared statements, so the cache goes with it.
       clearStmtCache();
       db!.exec(m.sql);

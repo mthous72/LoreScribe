@@ -29,7 +29,7 @@
 │               OpenRouter · OpenAI-compatible (Ollama,    │
 │               llama.cpp, LM Studio) · local embeddings   │
 ├──────────────────────────────────────────────────────────┤
-│ Data          Repositories → Drizzle ORM → SQLite        │
+│ Data          Repositories → SqlDriver → SQLite          │
 │               web: @sqlite.org/sqlite-wasm over OPFS     │
 │               android: @capacitor-community/sqlite       │
 └──────────────────────────────────────────────────────────┘
@@ -43,11 +43,15 @@ actually lives.
 ## Storage: one SQL dialect, two engines
 
 `@sqlite.org/sqlite-wasm` with OPFS on the web and `@capacitor-community/sqlite`
-on Android both speak SQLite, so Drizzle sits over a thin `SqlDriver` interface
-with two implementations. Drizzle connects through **`sqlite-proxy`**, whose
-async callback maps cleanly onto worker `postMessage`. Migrations are plain
-numbered `.sql` files, inlined at build time and applied in a transaction at
-startup. Consequences worth knowing up front:
+on Android both speak SQLite, so the repositories sit over a thin `SqlDriver`
+interface with two implementations. They write SQL directly; there is no ORM
+([D28](10-decisions.md) — one was carried unused through Phase 1 and removed).
+The driver's shape — the method names `run` / `all` / `get` / `values`, and rows
+returned as **positional arrays** — is inherited from the `sqlite-proxy` contract
+it was originally built against, and kept because every repository reads rows
+that way and an async callback maps cleanly onto worker `postMessage`.
+Migrations are plain numbered `.sql` files, inlined at build time and applied in
+a transaction at startup. Consequences worth knowing up front:
 
 - Run SQLite in a **dedicated** web worker — not merely to keep long queries off
   the main thread, but because `createSyncAccessHandle()` exists nowhere else.
@@ -56,10 +60,12 @@ startup. Consequences worth knowing up front:
 - **The worker RPC layer is ours.** `sqlite3Worker1Promiser` was deprecated in
   April 2026 and its author calls it "too fragile, too imperformant, and too
   limited for any non-toy software."
-- **Drizzle's migrator cannot run here.** `drizzle-orm/sqlite-proxy/migrator`
-  imports `node:fs` and reads migration files off disk at run time. Migration
-  application is hand-rolled, with `PRAGMA user_version` as the source of truth
-  and a `schema_migration` audit log that is deliberately not load-bearing.
+- **Migration application is ours.** No off-the-shelf migrator survives here —
+  the one this project originally planned to use reads files off disk at run
+  time, which a browser cannot do. `PRAGMA user_version` is the source of truth
+  and a `schema_migration` audit log sits beside it, deliberately not
+  load-bearing. A change to `db/schema.sql` needs a matching migration, always
+  ([D23](10-decisions.md)).
 - **Pragmas live in the driver, never in the schema** — they are per-connection,
   order-sensitive, and the two engines land in different journal modes (Android
   is WAL2 by default; sahpool needs `locking_mode=exclusive` first and gains

@@ -740,3 +740,52 @@ mechanical one, a twenty-minute writing session **on the phone** with a written
 record of what got in the way, and a re-read of Phase 1's claim answered in
 writing with reasons.
 
+
+### D28 — Drizzle is removed; the repositories always wrote SQL
+*Amends [doc 01](01-architecture.md), whose data layer read
+`Repositories → Drizzle ORM → SQLite` and described a layer that was not there.*
+
+**What was actually true.** Phase 0 built `src/db/drizzle.ts` and a
+`src/db/schema.ts` declaring **2 of the schema's 39 tables**, whose own header
+said the remaining 35 *"arrive in Phase 1 alongside the code that uses them"*.
+Phase 1 is finished. None arrived. Every repository written in it — manuscript,
+codex, facts, search, versions, import, export — goes straight to `SqlDriver`
+with SQL, and nothing ever touched the Drizzle handle `DbProvider` was exposing.
+
+Nobody decided against it; it simply never got picked up, because the queries
+this app needs are the ones an ORM is worst at. `MATCH` against FTS5 with
+`bm25()` column weights, rank recomputation scoped to the rows a move can reach,
+and a bulk export join across book/part/chapter/scene are all clearer as SQL and
+would have been fought at every step.
+
+**Two things made keeping it worse than removing it**, beyond the unused
+dependency:
+
+1. **A second schema definition that can drift.** `db/schema.sql` is the
+   canonical artefact and migration 001. A partial TypeScript restatement of it
+   is exactly the failure class [D23](#d23--migration-001-is-frozen-and-the-suite-now-runs-an-old-database-forward)
+   exists for — and `schema.ts`'s header claimed *"the schema-equivalence test
+   proves the two agree"*, which was not true: no such test was ever written.
+   A file asserting its own correctness with no test behind it is worse than one
+   that says nothing.
+2. **It invited a second idiom.** Phase 2 adds a provider layer and more data
+   access. A half-adopted ORM sitting in the tree is an invitation to start using
+   it there, leaving two ways to read a row and no rule about which.
+
+**Cost of removal, measured:** 55 → 54 production dependencies; the main bundle
+935 kB → 868 kB (290 → 272 kB gzip). Two files deleted, seven comments corrected.
+
+**What deliberately stays.** The driver's method names (`run` / `all` / `get` /
+`values`) and its positional-array rows were inherited from `sqlite-proxy`'s
+contract. They are unchanged, because every repository reads rows positionally
+and the async callback shape maps cleanly onto worker `postMessage` — but the
+comments now say where the shape came from rather than naming a library that is
+gone, and [doc 14](14-references.md) keeps the original findings for the same
+reason. A protocol outliving the thing that chose it is fine; a protocol nobody
+can explain is not.
+
+**If typed queries are wanted later**, add the dependency back deliberately, for
+a place it earns. Carrying one unused for a phase and a half is not the same as
+keeping the option open — it is paying for the option while losing the ability to
+notice that nothing is using it.
+

@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { WorkerSqlDriver } from '../db/client';
 import { SqlOpenError } from '../db/driver';
 import { migrate } from '../db/migrate';
-import { makeDb, type Db } from '../db/drizzle';
 import { ProjectRepository } from '../data/projectRepository';
 import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { CodexRepository } from '../data/codexRepository';
@@ -24,7 +23,6 @@ const HEARTBEAT_MS = 15_000;
 interface Ready {
   state: 'ready';
   driver: WorkerSqlDriver;
-  db: Db;
   projects: ProjectRepository;
   manuscript: ManuscriptRepository;
   codex: CodexRepository;
@@ -194,7 +192,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
         setState({
-          state: 'ready', driver, db: makeDb(driver),
+          state: 'ready', driver,
           projects: new ProjectRepository(driver),
           manuscript,
           codex,
