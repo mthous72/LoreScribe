@@ -97,6 +97,13 @@ arithmetic sits beside the expectation where a reviewer can check it.)
 
 ## Phase 1 — The graph, with no AI at all *(~3 weeks)*
 - Codex CRUD for all entity types, aliases, relationships.
+  *(Built — `src/data/codexRepository.ts` and `src/app/CodexPage.tsx`. Creating
+  an entity mints a primary alias from its name, because the matcher reads
+  aliases and not `entity.name`; any alias change marks `mention` stale and the
+  page re-scans the manuscript rather than sending the writer to settings. The
+  attribute fields are rendered from each type's JSON Schema, which is what
+  makes migration 002's "a field added here appears in the UI without code"
+  true.)*
 - Manuscript tree (book/part/chapter/scene) with drag reorder and LexoRank.
   *(Built — `src/data/manuscriptRepository.ts` and `src/app/ManuscriptPage.tsx`.
   A reorder writes one row; `global_rank` and `scene_fts` move in the same
@@ -108,9 +115,10 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   closed and tested: hidden tab, scene switch, and a takeover in another tab,
   which now waits for the save rather than racing it.)*
 - Alias-matching mention detection; backlinks; entity hover cards; `@` insert.
-  *(Detection and live highlighting run against real prose in the editor.
-  Backlinks, hover cards and `@` insert are not built, and there is no codex UI
-  yet to create the entities they would link to.)*
+  *(Detection, live highlighting, backlinks in both directions, and the entity
+  card are built. The card opens on a tap rather than a hover, because hover
+  does not exist on a phone and [D15](10-decisions.md) makes the phone a peer.
+  `@` insert is not built.)*
 - Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.
 - FTS search across everything.
 - **`.libriscribe.json` importer** — entities, chapters, scenes, arcs, milestones,

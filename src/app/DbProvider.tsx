@@ -5,6 +5,7 @@ import { migrate } from '../db/migrate';
 import { makeDb, type Db } from '../db/drizzle';
 import { ProjectRepository } from '../data/projectRepository';
 import { ManuscriptRepository } from '../data/manuscriptRepository';
+import { CodexRepository } from '../data/codexRepository';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -21,6 +22,7 @@ interface Ready {
   db: Db;
   projects: ProjectRepository;
   manuscript: ManuscriptRepository;
+  codex: CodexRepository;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -172,6 +174,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           state: 'ready', driver, db: makeDb(driver),
           projects: new ProjectRepository(driver),
           manuscript: new ManuscriptRepository(driver),
+          codex: new CodexRepository(driver),
           diagnostics, storage, uncleanShutdown, registerFlush,
         });
       } catch (e) {

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, Extension, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { mentionDecorationPlugin } from './mentionDecorations';
+import { Link } from 'react-router-dom';
 import { useDb } from '../app/DbProvider';
+import type { Entity } from '../data/codexRepository';
 import { loadAliases } from '../index/sceneIndex';
 import type { AliasEntry } from '../domain/mentions';
 import type { SceneSummary } from '../data/manuscriptRepository';
@@ -107,6 +109,7 @@ function Surface({ projectId, scene, initialJson, aliases }: {
   aliases: AliasEntry[];
 }) {
   const db = useDb();
+  const [card, setCard] = useState<{ entity: Entity; top: number; left: number } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [words, setWords] = useState(scene.wordCount);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +216,35 @@ function Surface({ projectId, scene, initialJson, aliases }: {
     };
   }, [db, flush]);
 
+  /**
+   * Tap a highlighted name to see what the codex knows about it.
+   *
+   * Tap, not hover. Hover does not exist on a phone, and
+   * [D15](../../docs/10-decisions.md) makes the phone a peer rather than a
+   * viewer — a card that only appears on mouseover is a feature half the
+   * devices cannot reach. It also leaves the caret where the writer put it,
+   * because clicking is how they move around their own prose and this must not
+   * take that over.
+   */
+  const onEditorClick = (e: React.MouseEvent) => {
+    if (db.state !== 'ready') return;
+    const hit = (e.target as HTMLElement).closest<HTMLElement>('[data-entity-id]');
+    if (!hit) { setCard(null); return; }
+    const id = hit.dataset.entityId!;
+    const host = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const box = hit.getBoundingClientRect();
+    void db.codex.getEntity(id).then((detail) => {
+      if (!detail) { setCard(null); return; }
+      setCard({
+        entity: detail.entity,
+        top: box.bottom - host.top + 6,
+        // Kept inside the container: a name at the right edge would otherwise
+        // open a card hanging off the page.
+        left: Math.max(0, Math.min(box.left - host.left, host.width - 260)),
+      });
+    });
+  };
+
   return (
     <div className="mt-4">
       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 text-xs">
@@ -234,8 +266,39 @@ function Surface({ projectId, scene, initialJson, aliases }: {
         )}
       </div>
 
-      <div className="rounded-xl border border-current/15 p-4">
+      <div
+        className="relative rounded-xl border border-current/15 p-4"
+        onClick={onEditorClick}
+        onKeyDown={(e) => { if (e.key === 'Escape') setCard(null); }}>
         <EditorContent editor={editor} />
+        {card && (
+          <div
+            role="dialog"
+            aria-label={`${card.entity.name} — codex entry`}
+            style={{ top: card.top, left: card.left }}
+            className="absolute z-10 w-[16rem] rounded-lg border border-current/20
+                       bg-white p-3 text-xs shadow-lg dark:bg-neutral-900">
+            <p className="font-medium">{card.entity.name}</p>
+            <p className="mt-0.5 opacity-50">{card.entity.typeKey} · {card.entity.importance}</p>
+            {card.entity.summary && <p className="mt-2 opacity-80">{card.entity.summary}</p>}
+            {!card.entity.summary && (
+              <p className="mt-2 opacity-60">
+                No one-line summary yet. Adding one here is what a brief would
+                show instead of the full entry.
+              </p>
+            )}
+            <div className="mt-2 flex gap-3">
+              <Link
+                to={`/project/${projectId}/codex?entity=${card.entity.id}`}
+                className="underline opacity-70">
+                Open in codex
+              </Link>
+              <button onClick={() => setCard(null)} className="underline opacity-50">
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
