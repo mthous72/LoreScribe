@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
 import type { SqlDriver } from './driver';
+import { migrate } from './migrate';
 import type { SqlMethod, Diagnostics } from './protocol';
 
 /**
@@ -21,13 +21,22 @@ export class NodeSqlDriver implements SqlDriver {
   readonly engine = 'node:sqlite';
   constructor(private readonly db: DatabaseSync) {}
 
-  /** A fresh in-memory database with the shipped schema and seed migration. */
-  static open(): NodeSqlDriver {
+  /**
+   * A fresh in-memory database, brought up through the real migrator.
+   *
+   * Deliberately not applying the SQL files by hand. It used to, and left
+   * `user_version` at 0 while the tables existed — a state no real database is
+   * ever in, and one that hid the fact that these fixtures were not going
+   * through the code that upgrades a writer's database. A test driver that
+   * builds its schema differently from production is a test driver that cannot
+   * see migration bugs.
+   */
+  static async open(): Promise<NodeSqlDriver> {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');
-    db.exec(readFileSync('db/schema.sql', 'utf8'));
-    db.exec(readFileSync('db/migrations/002_seed_entity_types.sql', 'utf8'));
-    return new NodeSqlDriver(db);
+    const driver = new NodeSqlDriver(db);
+    await migrate(driver);
+    return driver;
   }
 
   async exec(sql: string): Promise<void> { this.db.exec(sql); }
