@@ -23,7 +23,7 @@ const all = async (sql: string, params: unknown[] = []) =>
   (await driver.query(sql, params, 'all')).rows as unknown[][];
 
 beforeEach(async () => {
-  driver = NodeSqlDriver.open();
+  driver = await NodeSqlDriver.open();
   codex = new CodexRepository(driver);
   manuscript = new ManuscriptRepository(driver);
   await driver.query('INSERT INTO project (id,title,created_at,updated_at) VALUES (?,?,?,?)',

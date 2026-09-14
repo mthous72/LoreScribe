@@ -66,10 +66,14 @@ test('B5 — migration 002 seeds the entity types, and re-running changes nothin
     types: string[]; audit: string[];
   };
 
-  expect(state.firstApplied).toEqual([1, 2]);
+  // The list is spelled out rather than derived from MIGRATIONS on purpose:
+  // adding a migration should require someone to say so here, in the test that
+  // proves a browser applies it. 003 exists because a schema change once did
+  // NOT require that, and reached nobody who already had a database (D23).
+  expect(state.firstApplied).toEqual([1, 2, 3]);
   expect(state.secondApplied, 'a second migrate() re-applied something').toEqual([]);
-  expect(state.userVersion).toBe(2);
-  expect(state.audit).toEqual(['1:init', '2:seed_entity_types']);
+  expect(state.userVersion).toBe(3);
+  expect(state.audit).toEqual(['1:init', '2:seed_entity_types', '3:repair_schema_drift']);
   expect(state.types).toEqual([
     'character', 'concept', 'event', 'faction', 'item', 'language',
     'location', 'motif', 'species', 'system', 'theme',

@@ -22,7 +22,7 @@ const opLog = async () =>
     .map((r) => `${r[0]}/${r[2]}`);
 
 beforeEach(async () => {
-  driver = NodeSqlDriver.open();
+  driver = await NodeSqlDriver.open();
   repo = new ManuscriptRepository(driver);
   await driver.query(
     'INSERT INTO project (id,title,created_at,updated_at) VALUES (?,?,?,?)',

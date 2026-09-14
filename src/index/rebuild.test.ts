@@ -52,7 +52,7 @@ async function seed(): Promise<{
 const all = async (sql: string, params: unknown[] = []) =>
   (await driver.query(sql, params, 'all')).rows as unknown[][];
 
-beforeEach(async () => { driver = NodeSqlDriver.open(); await seed(); });
+beforeEach(async () => { driver = await NodeSqlDriver.open(); await seed(); });
 
 describe('a project that has never been indexed', () => {
   it('reports every kind as needing a rebuild, and says why', async () => {

@@ -450,3 +450,50 @@ scene cannot be dragged past the visible list. The keyboard path has no such
 limit. Auto-scroll and collision strategies are most of what a library would buy,
 so the day a writer needs to drag a scene twenty chapters is the day to take
 dnd-kit and delete `src/ui/useReorder.ts`.
+
+
+### D23 — Migration 001 is frozen, and the suite now runs an old database forward
+*Reverses the R8 rule in [doc 15 §2](15-phase-0-plan.md). Recorded because that
+rule did not merely turn out to be suboptimal — it shipped a bug that stopped a
+real writer opening their book.*
+
+**What happened.** Migration 001 is `db/schema.sql`, imported directly so the
+canonical schema and the first migration cannot drift apart. R8 then declared
+001 "explicitly mutable until Phase 1 ends", reasoning that there was "no
+installed base to protect". Two commits edited it in place under that rule:
+`project_lock` became `session_lock`, and the fact views were renamed and
+corrected.
+
+**Why it broke.** The premise had already expired. R2b deployed the app to
+GitHub Pages and used it on a real Android device *during Phase 0*, so a
+database existed in the wild before Phase 1 began. `migrate()` skips every
+migration at or below `user_version`; that database was at 2, so both migrations
+were skipped and neither edit reached it. It opened, migrated successfully, and
+then failed with `no such table: session_lock`.
+
+**Why nothing caught it.** Every test in the repository creates a **fresh**
+database. The fresh path and the upgrade path are different code paths, and only
+one of them was ever exercised — so the suite could not see this class of
+failure at all. That is the finding worth keeping: not a missing test, a missing
+path.
+
+**The fix, in two parts.** Migration 003 repairs the drift, written to be
+idempotent and to converge from any earlier shape, so it is a no-op on a fresh
+database. And `src/db/migrate.test.ts` builds a database from a frozen snapshot
+of the Phase 0 schema (`tests/fixtures/schema-phase0.sql`), runs it forward, and
+asserts it is **structurally identical** to a fresh one. That test does not need
+to know what was edited: any change to `db/schema.sql` without a matching
+migration makes the two diverge. Verified by making exactly that mistake on
+purpose and watching it fail.
+
+`NodeSqlDriver.open()` also now builds its schema through the real migrator
+rather than applying the SQL files by hand. It used to leave `user_version` at 0
+while the tables existed — a state no real database is ever in, and a fixture
+that does not go through the code which upgrades a writer's database cannot see
+bugs in it.
+
+**The rule from here.** A change to `db/schema.sql` needs a matching migration.
+Always, and regardless of how early the project feels — "nobody has data yet"
+is a claim about the world that stops being true without anyone noticing, and
+the moment it does, the cost lands on the one person who trusted the app with a
+manuscript.

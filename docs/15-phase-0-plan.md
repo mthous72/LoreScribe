@@ -75,6 +75,14 @@ re-run to say whether it regressed.
   the existing suite" instead of "discover in month six that the abstraction was
   the wrong shape."
 - Migration 001 is **explicitly mutable** until Phase 1 ends. That's R8.
+  **This rule was wrong, and it shipped a bug** — see
+  [D23](10-decisions.md). Its premise, "there is no installed base to
+  protect", expired during Phase 0 itself: R2b deployed the app to Pages and
+  used it on a real phone, so a database existed in the wild before Phase 1
+  started. Two later commits edited 001 in place under this rule and never
+  reached that database, which then failed to open. Migration 001 is frozen
+  from 003 onward; a change to `db/schema.sql` needs a matching migration,
+  and `src/db/migrate.test.ts` fails if one is missing.
 
 The cost is about two days over Path A. It buys an Android gate that is
 executable rather than aspirational, a performance baseline to regress against,
