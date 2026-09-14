@@ -110,17 +110,30 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   transaction. Pointer events with a keyboard path, not HTML5 drag-and-drop,
   which never fires on touch — [D22](10-decisions.md).)*
 - Tiptap editor, autosave, word counts, scene versions and diff.
-  *(Editor, autosave and word counts built — `src/editor/SceneEditor.tsx`.
-  Scene versions and diff are not. Every path out of the autosave debounce is
-  closed and tested: hidden tab, scene switch, and a takeover in another tab,
-  which now waits for the save rather than racing it.)*
+  *(All built — `src/editor/SceneEditor.tsx`, `src/text/diff.ts`,
+  `src/data/versionsRepository.ts`, `src/app/SceneVersions.tsx`. Every path out
+  of the autosave debounce is closed and tested: hidden tab, scene switch, and a
+  takeover in another tab, which now waits for the save rather than racing it.
+  Keeping a draft and comparing against the page both flush that debounce first,
+  so neither can read a scene that is one sentence behind what the writer can
+  see. Restoring is non-destructive and the diff is paragraph-first —
+  [D24](10-decisions.md).)*
 - Alias-matching mention detection; backlinks; entity hover cards; `@` insert.
-  *(Detection, live highlighting, backlinks in both directions, and the entity
-  card are built. The card opens on a tap rather than a hover, because hover
+  *(All four built. The card opens on a tap rather than a hover, because hover
   does not exist on a phone and [D15](10-decisions.md) makes the phone a peer.
-  `@` insert is not built.)*
+  `@` insert writes an explicit link, which is the only way to reach an entity
+  whose name two entities share — the matcher refuses those rather than
+  guessing.)*
 - Facts UI with `established_at` / `revealed_at` / `fact_knowledge`.
-- FTS search across everything.
+  *(Built — `src/domain/factVisibility.ts` (the rule), `src/data/factsRepository.ts`,
+  `src/app/FactsPage.tsx`. The page's centre is a reading position: pick a scene
+  and a POV and every fact is labelled with what it is from there, by the same
+  rule Phase 2's brief compiler will run. Contradictions and continuity errors
+  are surfaced from `v_fact_conflicts` and a mechanical check.)*
+- FTS search across everything. *(Built — `src/data/searchQuery.ts`,
+  `searchRepository.ts`, `src/app/SearchPage.tsx`. Scenes and codex in one
+  ranked list, `bm25`-weighted so a name outranks a body mention. Nothing the
+  writer types reaches the FTS5 parser as syntax.)*
 - **`.libriscribe.json` importer** — entities, chapters, scenes, arcs, milestones,
   threads and prose mapped onto the graph, with chapter integers resolved to scene
   references. LoreScribe is a successor ([D5](10-decisions.md)); nothing else
@@ -238,7 +251,7 @@ before LibriScribe goes to maintenance. Phase in brackets.
 
 - [ ] Import a `.libriscribe.json` bundle without loss *(1)*
 - [ ] Per-item editing of every object, prose included *(1)*
-- [ ] Version snapshots with diff and rollback *(1)*
+- [x] Version snapshots with diff and rollback *(1)*
 - [ ] Export: project archive, Markdown, plain text *(1)*
 - [ ] Write / rewrite **one scene**, propose → diff → accept, spliced in place *(2)*
 - [ ] Prompt/context preview before spending a token — the brief inspector *(2)*

@@ -1,6 +1,7 @@
 import type { SqlDriver } from '../db/driver';
 import { deviceId, uuidv7 } from './ids';
 import { markStale } from '../index/indexState';
+import { codexFtsStatements } from '../index/codexIndex';
 
 /**
  * The codex: entities, their aliases, and the relationships between them.
@@ -295,6 +296,9 @@ export class CodexRepository {
       this.#op('entity', id, 'insert', entity, now),
       // The primary alias, without which this entity is invisible to the prose.
       ...this.#aliasInsert(uuidv7(now), id, entity.name, 'name', true, now),
+      // And the search index, without which it is invisible to search until
+      // somebody runs a wholesale rebuild.
+      ...codexFtsStatements('entity', id),
     ], true);
 
     await markStale(this.driver, ['mention']);
@@ -346,6 +350,7 @@ export class CodexRepository {
       writes.push(this.#op('entity_alias', primary.id, 'update', { alias: patch.name }, now));
     }
 
+    writes.push(...codexFtsStatements('entity', id));
     await this.driver.batch(writes, true);
     if (renamed) await markStale(this.driver, ['mention']);
   }
@@ -369,6 +374,8 @@ export class CodexRepository {
       { sql: 'DELETE FROM mention WHERE entity_id = ?', params: [id] },
       // Aliases are not a tombstone anyone needs and they would keep matching.
       { sql: 'DELETE FROM entity_alias WHERE entity_id = ?', params: [id] },
+      // The INSERT half finds no undeleted row, so this removes it from search.
+      ...codexFtsStatements('entity', id),
     ], true);
     await markStale(this.driver, ['mention']);
   }

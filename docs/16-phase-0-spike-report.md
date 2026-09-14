@@ -18,7 +18,7 @@ plan's assumptions were wrong and are corrected below.
 | 1 | Local Chromium 153, production build served by `vite preview` | **done — this report** |
 | 1b | CI (`ubuntu-latest`, Playwright Chromium), plain and under the `/LoreScribe/` prefix | **done — green, every step** |
 | 2 | Deployed Pages origin, desktop Chrome | **partial** — see below |
-| 3 | Deployed Pages origin, Android Chrome on a real device | **done — R2b survived** |
+| 3 | Deployed Pages origin, Android Chrome on a real device | **done — R2b survived**; Phase 1's surface re-verified there on 2026-09-14 (tree, drag reorder by thumb, editor, codex), which is what moved [D22](10-decisions.md) from reasoning to result |
 
 **Environment 2 is deliberately marked partial rather than done.** What was
 verified directly: the origin serves the *build* and not the repository, the

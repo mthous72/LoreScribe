@@ -10,6 +10,13 @@
   background: color-mix(in srgb, currentColor 6%, transparent);
   border-radius: 2px;
 }
+/* An explicitly linked name is usually also an alias, so the mark and the
+   matcher's decoration wrap the same word and the styling doubles. The nesting
+   is harmless; only the paint needs to know. Without this, a linked name that
+   happens to be an alias looks heavier than one that is not — different
+   emphasis for the same idea, decided by an implementation detail. */
+.ls-mention .ls-mention { border-bottom: none; background: none; }
+
 .ProseMirror { outline: none; }
 .ProseMirror p { margin: 0 0 0.75em; }
 

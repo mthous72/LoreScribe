@@ -5,6 +5,7 @@ import { useReorder, type DropTarget } from '../ui/useReorder';
 import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
 import { SceneCast } from './SceneCast';
+import { SceneVersions } from './SceneVersions';
 
 /**
  * The manuscript tree.
@@ -50,6 +51,10 @@ export function ManuscriptPage() {
   const [announcement, setAnnouncement] = useState('');
   const [generation, setGeneration] = useState(0);
   const reload = useCallback(() => setGeneration((g) => g + 1), []);
+  // Separate from `generation`, which every tree write bumps: this one remounts
+  // the editor, and doing that on a rename would throw away the writer's undo
+  // history for no reason.
+  const [contentToken, setContentToken] = useState(0);
 
   useEffect(() => {
     if (db.state !== 'ready' || !projectId) return;
@@ -186,9 +191,17 @@ export function ManuscriptPage() {
         Drag a row by its handle, or focus one and press Alt with the up and down
         arrows. Moving a scene past the end of a chapter moves it into the next.
       </p>
-      <Link to={`/project/${projectId}/codex`} className="mt-2 inline-block text-xs underline opacity-70">
-        Codex — the people, places and things this book knows about →
-      </Link>
+      <div className="mt-2 flex flex-wrap gap-x-4 text-xs">
+        <Link to={`/project/${projectId}/codex`} className="underline opacity-70">
+          Codex — the people, places and things this book knows about →
+        </Link>
+        <Link to={`/project/${projectId}/facts`} className="underline opacity-70">
+          Facts — what is true, and who knows →
+        </Link>
+        <Link to={`/project/${projectId}/search`} className="underline opacity-70">
+          Search →
+        </Link>
+      </div>
 
       {/* Announced rather than only shown: a drag gives sighted feedback the
           keyboard path does not. */}
@@ -285,8 +298,19 @@ export function ManuscriptPage() {
       {openScene
         ? (
           <>
-            <SceneEditor projectId={projectId} scene={openScene} />
+            <SceneEditor
+              projectId={projectId} scene={openScene} reloadToken={contentToken} />
             <SceneCast projectId={projectId} sceneId={openScene.id} />
+            <SceneVersions
+              // Keyed on the scene: the chosen comparison, the last message and
+              // a half-typed draft name all belong to the scene they were made
+              // in, and carrying them across would point the pickers at drafts
+              // the new scene does not have.
+              key={openScene.id}
+              projectId={projectId}
+              scene={openScene}
+              onRestored={() => { setContentToken((n) => n + 1); reload(); }}
+            />
           </>
         )
         : (

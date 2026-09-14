@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EditorContent, Extension, useEditor } from '@tiptap/react';
+import { EditorContent, Extension, useEditor, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { mentionDecorationPlugin } from './mentionDecorations';
+import { EntityLink } from './entityLink';
+import {
+  MentionSuggest, setSuggestHandlers, clearSuggestHandlers, suggestKey, type SuggestState,
+} from './mentionSuggest';
 import { Link } from 'react-router-dom';
 import { useDb } from '../app/DbProvider';
 import type { Entity } from '../data/codexRepository';
@@ -60,14 +64,26 @@ function saveDelay(): number {
 
 type SaveState = 'saved' | 'unsaved' | 'saving' | 'failed';
 
-export function SceneEditor({ projectId, scene }: { projectId: string; scene: SceneSummary }) {
+export function SceneEditor({ projectId, scene, reloadToken = 0 }: {
+  projectId: string;
+  scene: SceneSummary;
+  /**
+   * Bump to reload the prose from the database and start the editor over.
+   *
+   * For one case: something outside the editor replaced the scene's text — a
+   * restored draft. The editor owns the document in memory, so without this it
+   * would keep showing the prose that was replaced, and its next autosave would
+   * put that prose straight back over the restore.
+   */
+  reloadToken?: number;
+}) {
   const db = useDb();
   // Tagged with the scene it belongs to, rather than cleared when the scene
   // changes: for one render after switching scenes the old content is still in
   // state, and mounting the editor with it would show the previous scene's
   // prose under the new scene's id — which the first autosave would then write.
   const [loaded, setLoaded] = useState<
-    { sceneId: string; json: string | null; aliases: AliasEntry[] } | null>(null);
+    { sceneId: string; token: number; json: string | null; aliases: AliasEntry[] } | null>(null);
 
   useEffect(() => {
     if (db.state !== 'ready') return;
@@ -78,22 +94,27 @@ export function SceneEditor({ projectId, scene }: { projectId: string; scene: Sc
         loadAliases(db.driver, projectId),
       ]);
       if (!cancelled) {
-        setLoaded({ sceneId: scene.id, json: content?.contentJson ?? null, aliases });
+        setLoaded({
+          sceneId: scene.id, token: reloadToken, json: content?.contentJson ?? null, aliases,
+        });
       }
     })();
     return () => { cancelled = true; };
-  }, [db, projectId, scene.id]);
+  }, [db, projectId, scene.id, reloadToken]);
 
   if (db.state !== 'ready') return null;
-  if (loaded?.sceneId !== scene.id) {
+  if (loaded?.sceneId !== scene.id || loaded.token !== reloadToken) {
     return <p className="px-2 py-6 text-sm opacity-60">Opening the scene…</p>;
   }
 
   // Keyed on the scene so a different scene gets a fresh editor rather than a
-  // reused one whose undo history belongs to the previous scene's prose.
+  // reused one whose undo history belongs to the previous scene's prose. The
+  // token is in the key for the same reason: restored prose is not an edit of
+  // what was there, and an undo stack that stepped back across it would be
+  // undoing keystrokes the writer never made.
   return (
     <Surface
-      key={scene.id}
+      key={`${scene.id}:${reloadToken}`}
       projectId={projectId}
       scene={scene}
       initialJson={loaded.json}
@@ -110,6 +131,25 @@ function Surface({ projectId, scene, initialJson, aliases }: {
 }) {
   const db = useDb();
   const [card, setCard] = useState<{ entity: Entity; top: number; left: number } | null>(null);
+  const [suggest, setSuggest] = useState<SuggestState | null>(null);
+  const [candidates, setCandidates] = useState<Entity[]>([]);
+  const [chosen, setChosen] = useState(0);
+  // `insertLinkAt` acts on the editor but is defined before it exists, and runs
+  // only from a key press or a click — long after effects have settled.
+  const editorRef = useRef<Editor | null>(null);
+
+  /**
+   * What the editor thinks is being typed, right now.
+   *
+   * Read from the plugin rather than from `suggest`, which is React's copy and
+   * is a render behind. A key handler that trusts the copy decides using text
+   * the writer has already moved past.
+   */
+  const currentSuggest = useCallback((): SuggestState | null => {
+    const editor = editorRef.current;
+    return editor ? (suggestKey.getState(editor.state) ?? null) : null;
+  }, []);
+
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [words, setWords] = useState(scene.wordCount);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +163,8 @@ function Surface({ projectId, scene, initialJson, aliases }: {
 
   const extensions = useMemo(() => [
     StarterKit,
+    EntityLink,
+    MentionSuggest,
     Extension.create({
       name: 'lorescribeMentions',
       addProseMirrorPlugins: () => [mentionDecorationPlugin({
@@ -175,6 +217,48 @@ function Surface({ projectId, scene, initialJson, aliases }: {
     await reindex();
   }, [save, reindex]);
 
+  /**
+   * Put the link in, replacing the `@query` the writer typed.
+   *
+   * The name comes from the codex rather than from what they typed, so
+   * "@ilv" becomes "Ilva" — the point of a picker is not having to spell it.
+   * A trailing space follows, and the mark is non-inclusive, so the next word
+   * is ordinary prose rather than more link.
+   */
+  const insertLinkAt = useCallback((range: { from: number; to: number }, entity: Entity) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.chain().focus().insertContentAt(range, [
+      {
+        type: 'text',
+        text: entity.name,
+        marks: [{ type: 'entityLink', attrs: { entityId: entity.id } }],
+      },
+      { type: 'text', text: ' ' },
+    ]).run();
+    setSuggest(null);
+    setCandidates([]);
+  }, []);
+
+  // What the `@` list offers. Matches aliases as well as names, so a character
+  // can be reached by any name the book calls them.
+  useEffect(() => {
+    if (db.state !== 'ready') return;
+    let cancelled = false;
+    void (async () => {
+      const found = suggest
+        ? (await db.codex.listEntities(projectId, { search: suggest.query })).slice(0, 8)
+        : [];
+      if (cancelled) return;
+      setCandidates(found);
+      setChosen(0);
+    })();
+    return () => { cancelled = true; };
+    // Deliberately NOT depending on insertLinkAt. Adding it made this effect
+    // run a second time and land a late setChosen(0), resetting the writer's
+    // arrow-key choice a moment after they made it.
+  }, [db, projectId, suggest]);
+
   const editor = useEditor({
     extensions,
     content: initialJson ? (JSON.parse(initialJson) as object) : '',
@@ -198,6 +282,70 @@ function Surface({ projectId, scene, initialJson, aliases }: {
       reindexTimer.current = setTimeout(() => { void reindex(); }, REINDEX_AFTER_MS);
     },
   }, [extensions]);
+
+  // After render, not during it: `insertLink` only ever runs from a key press
+  // or a click, both of which happen long after effects have settled.
+  useEffect(() => { editorRef.current = editor; }, [editor]);
+
+  // Left for the plugin after each render, read when a key is pressed. They
+  // close over the current candidate list, so they are replaced whenever it
+  // changes — which is why they cannot be handed over once at construction.
+  useEffect(() => {
+    const view = editor?.view;
+    if (!view) return;
+    setSuggestHandlers(view, {
+      onState: setSuggest,
+      onKeyDown: (event) => {
+        if (event.key === 'Escape') {
+          setSuggest(null);
+          setCandidates([]);
+          return true;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          // The fast path: the list is showing, so the choice is already made.
+          const pick = candidates[chosen];
+          const showing = currentSuggest();
+          if (pick && showing) { insertLinkAt(showing.range, pick); return true; }
+
+          /*
+           * The slow path, and the reason it exists.
+           *
+           * `candidates` is React state fed by a database round trip, so it
+           * lags the editor by at least one render — and a writer typing
+           * "@ilva" and hitting Enter in one motion outruns it. Deciding from
+           * stale state gets it wrong in both directions: an Enter let through
+           * breaks the paragraph instead of inserting the link, and an Enter
+           * held on a stale "still loading" is simply lost.
+           *
+           * So the decision is not made from React state at all. The plugin's
+           * own state is always current, the lookup is redone for exactly what
+           * is on screen, and whichever answer comes back is honoured — insert
+           * the match, or perform the paragraph break that was withheld.
+           */
+          if (!showing) return false;
+          const { range, query } = showing;
+          void (async () => {
+            if (db.state !== 'ready') return;
+            const found = await db.codex.listEntities(projectId, { search: query });
+            if (found[0]) insertLinkAt(range, found[0]);
+            else editorRef.current?.commands.splitBlock();
+          })();
+          return true;
+        }
+        if (!candidates.length) return false;
+        if (event.key === 'ArrowDown') {
+          setChosen((i) => (i + 1) % candidates.length);
+          return true;
+        }
+        if (event.key === 'ArrowUp') {
+          setChosen((i) => (i - 1 + candidates.length) % candidates.length);
+          return true;
+        }
+        return false;
+      },
+    });
+    return () => { clearSuggestHandlers(view); };
+  }, [editor, candidates, chosen, insertLinkAt, currentSuggest, db, projectId]);
 
   // Close each window out of the debounce.
   useEffect(() => {
@@ -271,6 +419,17 @@ function Surface({ projectId, scene, initialJson, aliases }: {
         onClick={onEditorClick}
         onKeyDown={(e) => { if (e.key === 'Escape') setCard(null); }}>
         <EditorContent editor={editor} />
+
+        {suggest && candidates.length > 0 && editor && (
+          <MentionList
+            editor={editor}
+            from={suggest.range.from}
+            candidates={candidates}
+            chosen={chosen}
+            onPick={(entity) => insertLinkAt(suggest.range, entity)}
+          />
+        )}
+
         {card && (
           <div
             role="dialog"
@@ -301,5 +460,71 @@ function Surface({ projectId, scene, initialJson, aliases }: {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The `@` list, anchored to the caret.
+ *
+ * Positioned from `coordsAtPos` rather than tracked in state: the caret moves
+ * on every keystroke, and a position stored in React would always be one render
+ * behind the word it belongs to.
+ *
+ * Not focusable. The caret stays in the prose the whole time — a menu that took
+ * focus to be steered would take the writer's place in the sentence with it.
+ * That is why this is a `listbox` the editor points at rather than a row of
+ * buttons, and why the plugin borrows the arrow keys instead.
+ */
+function MentionList({ editor, from, candidates, chosen, onPick }: {
+  editor: Editor;
+  from: number;
+  candidates: Entity[];
+  chosen: number;
+  onPick: (entity: Entity) => void;
+}) {
+  const host = editor.view.dom.parentElement;
+  if (!host) return null;
+
+  const at = (() => {
+    try {
+      const caret = editor.view.coordsAtPos(from);
+      const box = host.getBoundingClientRect();
+      return {
+        top: caret.bottom - box.top + 4,
+        // Kept inside the editor: a name typed at the right edge would
+        // otherwise open a list hanging off the page.
+        left: Math.max(0, Math.min(caret.left - box.left, box.width - 240)),
+      };
+    } catch {
+      // A position that no longer resolves means the document moved under us.
+      // The next render will have a valid one.
+      return null;
+    }
+  })();
+  if (!at) return null;
+
+  return (
+    <ul
+      role="listbox"
+      aria-label="Link to a codex entry"
+      style={at}
+      className="absolute z-10 w-[15rem] overflow-hidden rounded-lg border border-current/20
+                 bg-white text-xs shadow-lg dark:bg-neutral-900">
+      {candidates.map((entity, i) => (
+        <li
+          key={entity.id}
+          role="option"
+          aria-selected={i === chosen}
+          data-chosen={i === chosen ? 'true' : undefined}
+          // onMouseDown, not onClick: a click blurs the editor first, which
+          // moves the caret out of the range we are about to replace.
+          onMouseDown={(e) => { e.preventDefault(); onPick(entity); }}
+          className={`flex cursor-pointer items-baseline gap-2 px-2.5 py-1.5
+                      ${i === chosen ? 'bg-current/10' : ''}`}>
+          <span className="min-w-0 flex-1 truncate">{entity.name}</span>
+          <span className="shrink-0 opacity-50">{entity.typeKey}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

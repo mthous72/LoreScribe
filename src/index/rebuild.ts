@@ -1,6 +1,7 @@
 import type { SqlDriver } from '../db/driver';
 import { rankUpdates, IN_PROJECT } from './sceneRank';
 import { indexScene, loadAliases, type SceneIndexRow } from './sceneIndex';
+import { codexFtsRebuild } from './codexIndex';
 import {
   DERIVED_KINDS, REVISIONS, indexStatus, markStale, recordBuild, recordFailure,
   type DerivedKind, type KindStatus,
@@ -96,24 +97,12 @@ async function rebuildFts(driver: SqlDriver, projectId: string): Promise<number>
            OR (owner_table = 'note'   AND owner_id IN (SELECT id FROM note   WHERE project_id = ?))`,
       params: [projectId, projectId, projectId],
     },
-    {
-      sql: `INSERT INTO codex_fts (owner_table, owner_id, name, body)
-            SELECT 'entity', id, name, COALESCE(summary,'') || ' ' || COALESCE(description,'')
-            FROM entity WHERE project_id = ? AND deleted_at IS NULL`,
-      params: [projectId],
-    },
-    {
-      sql: `INSERT INTO codex_fts (owner_table, owner_id, name, body)
-            SELECT 'fact', id, predicate, statement
-            FROM fact WHERE project_id = ? AND deleted_at IS NULL`,
-      params: [projectId],
-    },
-    {
-      sql: `INSERT INTO codex_fts (owner_table, owner_id, name, body)
-            SELECT 'note', id, COALESCE(title,''), COALESCE(body,'')
-            FROM note WHERE project_id = ? AND deleted_at IS NULL`,
-      params: [projectId],
-    },
+    // The same expressions the write path uses, from codexIndex.ts. Two
+    // spellings of "what text represents an entity" would mean a rebuild
+    // changed the data rather than restoring it.
+    { sql: codexFtsRebuild('entity'), params: [projectId] },
+    { sql: codexFtsRebuild('fact'), params: [projectId] },
+    { sql: codexFtsRebuild('note'), params: [projectId] },
   ], true);
 
   const { rows } = await driver.query(
@@ -135,7 +124,7 @@ async function rebuildMentions(
 ): Promise<number> {
   const aliases = await loadAliases(driver, projectId);
   const { rows } = await driver.query(
-    `SELECT s.id, s.title, s.content_text, s.global_rank, s.pov_entity_id
+    `SELECT s.id, s.title, s.content_text, s.global_rank, s.pov_entity_id, s.content_json
      FROM scene s JOIN chapter c ON c.id = s.chapter_id JOIN book b ON b.id = c.book_id
      WHERE b.project_id = ? AND s.deleted_at IS NULL
      ORDER BY s.global_rank`, [projectId], 'all');
@@ -145,6 +134,7 @@ async function rebuildMentions(
     contentText: r[2] as string | null,
     globalRank: r[3] as string | null,
     povEntityId: r[4] as string | null,
+    contentJson: r[5] as string | null,
   }));
 
   // One scene at a time, through the same function the write path uses. A
