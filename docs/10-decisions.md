@@ -789,3 +789,55 @@ a place it earns. Carrying one unused for a phase and a half is not the same as
 keeping the option open — it is paying for the option while losing the ability to
 notice that nothing is using it.
 
+
+### D29 — The beat is the unit of writing, and gaps are filled one at a time
+*Moves arcs, beats and `beat_scene` from Phase 4 to a new Phase 1b, and adds the
+gap screen to Phase 2. Both are sequencing changes; neither needs new
+architecture, which is the part worth noticing.*
+
+**Beats were mis-sequenced, and I said so wrongly.** Reviewing what Phase 2 needed,
+I listed "beats will be empty — arcs and beats are Phase 4" as an acceptable
+degradation to state rather than fix. That was wrong. Doc 03's `SceneBrief` has
+always carried `beats: BeatTarget[]`, described as *what this scene must
+accomplish*, and Step 1 collects the linked beats and the arcs they belong to.
+Generating against an empty one is generating against no target — which produces
+exactly the shapeless output the temporal graph exists to beat. A brief with
+perfect facts and no beat is a brief that knows everything about the world and
+nothing about what this scene is for.
+
+So arcs, beats, `beat_scene` and the beat/scene matrix move to **Phase 1b**,
+before the compiler. The arc board, tension curve, dual timeline, structure
+templates and top-down generation stay in Phase 4: authoring a beat is a
+prerequisite, visualising a hundred of them is not.
+
+**Generation is beat-sized, with whole-scene as a coarser mode.** A beat's prose
+is proposed, diffed and spliced in place rather than replacing a scene wholesale.
+Two consequences: it is the same "propose → diff → accept, spliced in place"
+the parity bar already asks for, and it is what Phase 3's span-level `origin`
+marks will attach to — a span can record the beat that produced it. Placement is
+by cursor at generation time; `beat_scene` says which beats a scene serves and in
+what role, not where in the prose they sit, and inventing a span column before
+the splice exists would be guessing at its shape.
+
+**Gap filling is the third proposal lane.** `src/domain/gapFinder.ts` was built
+and tested in Phase 0b and has never had a caller — it already reports
+`unrealised_beat`, `orphan_scene`, `thin_entity`, `missing_voice_profile`,
+`unresolved_arc`, `unresolved_thread` and two kinds of dangling reference.
+`proposal_run.seed_kind` has listed `gap_fill` since the schema was written,
+beside the `import` value the bible intake now uses. So this is a screen over a
+finished engine and a second producer for a finished review, not a new subsystem.
+
+**One gap, one request.** The discipline that makes it work is the same one the
+Scene Brief is built on: send what this one question needs, not the whole world.
+A model handed an entire story bible and asked to fill in the blanks will
+confabulate confidently across all of them and produce a hundred plausible
+answers nobody can check. A model asked *"this entity is referenced in four
+scenes and has no summary; here are the four sentences that mention it"* produces
+one answer, with its evidence beside it. The brief compiler is the machinery for
+doing that well, which is why the gap screen ships in Phase 2 rather than before
+it.
+
+**What this costs:** one week added at Phase 1b, one taken back off Phase 4, and
+the fixture novel moves behind beats — a fixture without them cannot exercise
+beat-driven generation, so building it first would measure the wrong thing.
+

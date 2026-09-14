@@ -127,6 +127,31 @@ is a real cost no test can see. That is what [Phase 2.5](#phase-25--making-it-wo
 is for. The sentence is left standing here rather than quietly softened, because
 it is the one this project should be judged against.
 
+## Phase 1b — Beats, the unit of writing *(~1 week)*
+
+Named for the 0b precedent: model-free graph work, run to finish what the next
+phase needs. It exists because listing "beats will be empty" as an acceptable
+Phase 2 degradation was wrong. Doc 03's brief has always had
+`beats: BeatTarget[]` — *"what this scene must accomplish"* — and generating
+against an empty one is generating against no target, which is precisely the
+shapeless output this project exists to beat ([D29](10-decisions.md)).
+
+- `arc`, `beat` and `beat_scene` repository and CRUD. Beat carries `function`
+  (setup/inciting/turn/midpoint/crisis/climax/resolution), `tension` and
+  `target_chapter_id`; the join carries a role (`setup|develop|payoff|echo`).
+- Authoring UI: beats under an arc, and the beats a scene serves shown beside
+  the editor next to its cast.
+- **The beat/scene matrix** — the `beat_scene` join as a grid, where unrealised
+  beats and orphan scenes both jump out ([doc 05](05-planning-arcs-and-scenes.md)).
+  It is also the companion to the gap screen in Phase 2, and `findGaps` already
+  reports both kinds.
+- **Not** in scope, still Phase 4: the arc board, tension curve, dual timeline,
+  structure templates, top-down generation.
+- **Done when:** a beat can be written, linked to the scenes that carry it, and
+  seen unrealised in the matrix — and the fixture novel below can be generated
+  with beats planted, because a fixture without them cannot exercise
+  beat-driven generation and would measure the wrong thing.
+
 ## Phase 2 — The Scene Brief Compiler *(~3 weeks)* ← the decisive phase
 - **Bible intake, second lane.** The deterministic lane moved to Phase 1 and is
   built ([D25](10-decisions.md)); what is left here is the extraction lane, which
@@ -148,10 +173,23 @@ it is the one this project should be judged against.
     manually-triggered use.
   - Everything lands as proposals, reviewed once, same as any other extraction —
     D14 applies: the bible itself never enters this public repository.
-- `ProviderAdapter` + OpenRouter adapter + secure credential storage.
+- `ProviderAdapter` + OpenRouter adapter + credential storage. The key lives in
+  `provider_account` with the UI saying plainly that it is unencrypted on this
+  device — consistent with [D12](10-decisions.md), and already excluded from the
+  archive export, so it never travels in a file you hand to someone.
+- **The gap screen, and gap-fill as the third proposal lane.** `findGaps` has
+  been built and tested since Phase 0b with no caller at all; this is its
+  consumer. Each gap gets its own small, focused request rather than one that
+  hands a model the whole world — a gap brief, sibling to the scene brief and
+  built on the same discipline. Everything lands in `proposal_run` with
+  `seed_kind = 'gap_fill'`, a value the schema has carried from the start, and is
+  reviewed by the screen the importer already uses ([D29](10-decisions.md)).
 - Model profiles / roles.
 - The compiler, all nine steps, with the **brief inspector UI**.
-- Draft, Continue, Expand, Rewrite modes; streaming; cancellation.
+- Draft, Continue, Expand, Rewrite — **beat-sized by default**, with whole-scene
+  as a coarser mode. A beat's prose is proposed, diffed and spliced in place;
+  Phase 3's span-level `origin` marks later record which beat produced which
+  span. Streaming; cancellation.
 - `ai_run` recording with the stored brief.
 - Rolling summaries and the continuity ladder.
 - Lore Digest compiler for structural generation.
@@ -245,9 +283,10 @@ surfaces, a theming system, animation, a component-library dependency.
 - Span-level `origin` marks in the editor, with the provenance rollup.
 - IP category: trait-based style rewriting, protected-property warnings.
 
-## Phase 4 — Planning *(~3 weeks)*
-- Arcs, beats, `beat_scene`, structure templates.
-- Arc board, tension curve, dual timeline, beat/scene matrix.
+## Phase 4 — Planning *(~2 weeks)*
+- Structure templates. *(Arcs, beats and `beat_scene` moved to Phase 1b, and the
+  beat/scene matrix with them — [D29](10-decisions.md).)*
+- Arc board, tension curve, dual timeline.
 - Top-down generation (premise → beats → chapters → scene cards).
 - Setup/payoff ledger; unrealised-beat and orphan-scene reports.
 
@@ -329,7 +368,8 @@ doesn't have (see [doc 07 §E](07-suggestions-backlog.md)).
 Series bible, maps, image generation, publishing helpers, plugins. Sync service
 only if the single-device assumption ever breaks.
 
-**Total: ~20 weeks at full-time pace** (0b overlapped 1; Phase 2.5 added two).
+**Total: ~21 weeks at full-time pace** (0b overlapped 1; Phase 2.5 added two;
+Phase 1b added one and took one back off Phase 4).
 At evenings-and-weekends pace, treat Phase 1 as the thing to cut down, not the
 phases after it — advice now spent, since Phase 1 is done.
 
