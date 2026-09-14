@@ -38,7 +38,7 @@ export type DossierDepth =
   | 'name-only';
 
 /** Why this entity is in the brief at all. Shown in the inspector. */
-export type SeedVia = 'pov' | 'location' | 'mention';
+export type SeedVia = 'pov' | 'location' | 'mention' | 'relationship';
 
 export interface EntityRow {
   id: string;
@@ -254,4 +254,164 @@ export function seedBrief(input: SeedInput): Seed {
     })),
     unresolved,
   };
+}
+
+/* ------------------------------------------------- step 2: expand one hop */
+
+/**
+ * Step 2 of the brief — [doc 03](../../docs/03-story-graph-and-context.md):
+ * *from each seed entity, traverse `entity_relationship` where the relationship
+ * is active at this scene's rank. One hop, not two — two-hop expansion pulls in
+ * the whole world and defeats the purpose. Second-hop entities are admitted only
+ * if they also appear in this scene's beats.*
+ *
+ * The temporal test is the same one the facts take: active means it had started
+ * by this point and has not ended. Written out here rather than shared with
+ * `factVisibility`, because the two answer different questions — a fact that
+ * ends is invalidated and may still be worth naming as wrong, while a
+ * relationship that ends simply is not a relationship any more.
+ *
+ * **A secret relationship does not expand, and doc 03 does not say so.** This is
+ * a deliberate addition. Step 4's spoiler filter protects *facts*; relationships
+ * never pass through it, so a secret one traversed here would put its other end
+ * in the brief with no spoiler check at all — "the Grey Warden" expanded to
+ * Kaelen in chapter five, which is exactly what the temporal model exists to
+ * prevent. Unlike a fact there is no `revealed_at` to consult, only a boolean,
+ * so the conservative direction is the only defensible one: reasoning from no
+ * evidence toward disclosure is backwards. A secret relationship is a candidate
+ * for the negative-constraints block in step 8, where naming it as forbidden is
+ * safe; it is not a candidate for expansion.
+ */
+
+export interface RelationshipRow {
+  fromEntityId: string;
+  toEntityId: string;
+  kind: string;
+  label: string | null;
+  strength: number | null;
+  isSecret: boolean;
+  /** Resolved from `since_scene_id`. Null means it always held. */
+  sinceRank: string | null;
+  /** Resolved from `until_scene_id`. Null means it still holds. */
+  untilRank: string | null;
+}
+
+/** How a neighbour got in, and what it is to the entity that brought it. */
+export interface SeedLink {
+  fromEntityId: string;
+  toEntityId: string;
+  kind: string;
+  label: string | null;
+  strength: number | null;
+  /** 1 for a direct neighbour of the scene; 2 for one admitted by a beat. */
+  hop: 1 | 2;
+}
+
+export interface Expanded extends Seed {
+  links: SeedLink[];
+}
+
+export interface ExpandInput {
+  seed: Seed;
+  /** The scene's `global_rank`. Ranks compare lexicographically. */
+  atRank: string;
+  relationships: readonly RelationshipRow[];
+  entities: ReadonlyMap<string, EntityRow>;
+  /** Other names an entity answers to, for the second-hop beat check. */
+  aliases?: ReadonlyMap<string, readonly string[]>;
+}
+
+const active = (r: RelationshipRow, at: string): boolean =>
+  (r.sinceRank === null || r.sinceRank <= at)
+  && (r.untilRank === null || r.untilRank > at);
+
+/** What the beats of this scene actually say, lowercased once. */
+const beatProse = (seed: Seed): string =>
+  seed.beats.map((b) => `${b.title} ${b.summary ?? ''}`).join(' ').toLowerCase();
+
+export function expandOneHop(input: ExpandInput): Expanded {
+  const { seed, atRank, entities } = input;
+  // Copies, not the seed's own arrays. Step 1 is pure and this has to be too,
+  // or a caller that compiles a brief twice gets a different answer the second
+  // time.
+  const cast = [...seed.cast];
+  const unresolved = [...seed.unresolved];
+  const links: SeedLink[] = [];
+  const known = new Set<string>([
+    ...seed.cast.map((c) => c.entityId),
+    ...seed.setting.map((s) => s.entityId),
+  ]);
+  // One row per pair, so being somebody's sister is one link however many
+  // entities in the scene are standing at either end of it.
+  const taken = new Set<RelationshipRow>();
+
+  // Both directions: `entity_relationship` stores one row per pair, and being
+  // somebody's sister is the same fact read either way round.
+  const neighbours = (id: string) => {
+    const out: { other: string; row: RelationshipRow }[] = [];
+    for (const r of input.relationships) {
+      if (r.isSecret || !active(r, atRank)) continue;
+      if (r.fromEntityId === id) out.push({ other: r.toEntityId, row: r });
+      else if (r.toEntityId === id) out.push({ other: r.fromEntityId, row: r });
+    }
+    return out;
+  };
+
+  const admit = (from: string, other: string, row: RelationshipRow, hop: 1 | 2) => {
+    if (!taken.has(row)) {
+      taken.add(row);
+      links.push({
+        fromEntityId: from, toEntityId: other, kind: row.kind,
+        label: row.label, strength: row.strength, hop,
+      });
+    }
+    if (known.has(other)) return false;
+    const entity = entities.get(other);
+    if (!entity) {
+      unresolved.push({ kind: 'entity', id: other });
+      return false;
+    }
+    known.add(other);
+    cast.push({
+      entityId: entity.id, name: entity.name, typeKey: entity.typeKey,
+      importance: entity.importance, summary: entity.summary,
+      description: entity.description,
+      // Not in the scene, so not a member of it: one line, and the link says
+      // what they are to somebody who is.
+      role: 'mentioned', depth: 'name-only', via: 'relationship',
+    });
+    return true;
+  };
+
+  const firstHop: string[] = [];
+  for (const seedEntity of [...seed.cast, ...seed.setting]) {
+    for (const { other, row } of neighbours(seedEntity.entityId)) {
+      if (admit(seedEntity.entityId, other, row, 1)) firstHop.push(other);
+    }
+  }
+
+  // The one exception doc 03 allows, and the only reason a second hop exists:
+  // a beat that names somebody two steps away is the writer saying this scene
+  // is about them. Nothing else earns a second hop, and there is never a third.
+  const prose = beatProse(seed);
+  if (prose.trim()) {
+    const named = (id: string): boolean => {
+      const entity = entities.get(id);
+      if (!entity) return false;
+      const names = [entity.name, ...(input.aliases?.get(id) ?? [])];
+      return names.some((n) => n.trim() && prose.includes(n.toLowerCase()));
+    };
+    for (const id of firstHop) {
+      for (const { other, row } of neighbours(id)) {
+        if (!known.has(other) && named(other)) admit(id, other, row, 2);
+      }
+    }
+  }
+
+  cast.sort((a, b) =>
+    ROLE_RANK[a.role] - ROLE_RANK[b.role]
+    || (a.via === 'relationship' ? 1 : 0) - (b.via === 'relationship' ? 1 : 0)
+    || a.name.localeCompare(b.name, 'en'));
+
+  return { ...seed, cast, links, unresolved };
 }

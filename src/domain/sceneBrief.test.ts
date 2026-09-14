@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { seedBrief, type EntityRow, type SeedInput } from './sceneBrief';
+import {
+  expandOneHop, seedBrief,
+  type BeatRow, type EntityRow, type RelationshipRow, type SeedInput,
+} from './sceneBrief';
 
 /**
  * Step 1 of the compiler.
@@ -188,5 +191,268 @@ describe('shape', () => {
       id: 's1', purpose: 'Get her through.', povMode: 'close_third',
       tense: 'past', globalRank: 'a1a1a1', wordCount: 900,
     });
+  });
+});
+
+/* ------------------------------------------------- step 2: expand one hop */
+
+/**
+ * Step 2 has one number in it and everything turns on that number. *One hop,
+ * not two — two-hop expansion pulls in the whole world and defeats the
+ * purpose.* A test suite that only checked that neighbours arrive would pass
+ * just as happily against a full transitive closure, so most of what follows is
+ * about what does **not** come back: the relationship that has not started, the
+ * one that has ended, the secret one, and the stranger two steps away that no
+ * beat asked for.
+ */
+
+const rel = (from: string, to: string, over: Partial<RelationshipRow> = {}): RelationshipRow => ({
+  fromEntityId: from, toEntityId: to, kind: 'family', label: 'sister of',
+  strength: 3, isSecret: false, sinceRank: null, untilRank: null, ...over,
+});
+
+const beat = (title: string, summary: string | null = null): BeatRow => ({
+  beatId: `b-${title}`, title, summary, function: null, tension: null,
+  role: 'develop', arcId: 'arc1', arcName: 'The seal', arcKind: 'main_plot',
+});
+
+/** A seed with `ids` present, then one hop out of it at the scene's rank. */
+const expand = (
+  seed: ReturnType<typeof seedBrief>,
+  relationships: RelationshipRow[],
+  worldIds: string[],
+  aliases?: Map<string, string[]>,
+) => expandOneHop({
+  seed, atRank: seed.scene.globalRank, relationships,
+  entities: world(...worldIds), aliases,
+});
+
+describe('one hop out of the scene', () => {
+  it('brings a neighbour in as a line, not as a member of the scene', () => {
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const out = expand(seed, [rel('Ilva', 'Renn')], ['Ilva', 'Renn']);
+
+    expect(out.cast.find((c) => c.name === 'Renn')).toMatchObject({
+      role: 'mentioned', depth: 'name-only', via: 'relationship',
+    });
+    expect(out.links).toEqual([{
+      fromEntityId: 'Ilva', toEntityId: 'Renn', kind: 'family',
+      label: 'sister of', strength: 3, hop: 1,
+    }]);
+  });
+
+  it('reads the relationship from either end', () => {
+    // `entity_relationship` stores one row per pair. Being somebody's sister is
+    // the same fact read the other way round, and a brief that only walked
+    // `from → to` would miss half the graph depending on who typed it in.
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const out = expand(seed, [rel('Renn', 'Ilva')], ['Ilva', 'Renn']);
+    expect(out.cast.map((c) => c.name)).toContain('Renn');
+  });
+
+  it('expands out of the setting as well as the cast', () => {
+    // The location is not in `cast`, and an expansion that only walked `cast`
+    // would silently never traverse it.
+    const seed = seedBrief(input({
+      scene: { ...input().scene, locationEntityId: 'the Kiln' },
+      entities: world('the Kiln'),
+    }));
+    const out = expand(seed, [rel('the Kiln', 'the Guild')], ['the Kiln', 'the Guild']);
+    expect(out.cast.map((c) => c.name)).toEqual(['the Guild']);
+    expect(out.links[0]).toMatchObject({ fromEntityId: 'the Kiln', hop: 1 });
+  });
+
+  it('records the link but leaves a scene member at the role it already has', () => {
+    const seed = seedBrief(input({
+      scene: { ...input().scene, povEntityId: 'Ilva' },
+      mentions: [{ entityId: 'Renn', role: 'present' }],
+      entities: world('Ilva', 'Renn'),
+    }));
+    const out = expand(seed, [rel('Ilva', 'Renn')], ['Ilva', 'Renn']);
+
+    expect(out.cast).toHaveLength(2);
+    expect(out.cast.find((c) => c.name === 'Renn')).toMatchObject({
+      role: 'present', depth: 'standard', via: 'mention',
+    });
+    // One row per pair, walked from both ends, is still one link.
+    expect(out.links).toHaveLength(1);
+  });
+});
+
+describe('what the hop refuses to bring', () => {
+  it('ignores a relationship that has not started yet', () => {
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const out = expand(
+      seed, [rel('Ilva', 'Renn', { sinceRank: 'z9z9z9' })], ['Ilva', 'Renn']);
+    expect(out.cast.map((c) => c.name)).toEqual(['Ilva']);
+    expect(out.links).toEqual([]);
+  });
+
+  it('ignores a relationship that has already ended', () => {
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const out = expand(
+      seed, [rel('Ilva', 'Renn', { untilRank: 'a0' })], ['Ilva', 'Renn']);
+    expect(out.cast.map((c) => c.name)).toEqual(['Ilva']);
+  });
+
+  it('holds at the two ends of the window', () => {
+    // Active means it had started by this scene and has not ended in it:
+    // `since <= rank`, `until > rank`. A relationship that ends in this very
+    // scene is over by the time the brief is compiled for it.
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const at = seed.scene.globalRank;
+    const starts = expand(
+      seed, [rel('Ilva', 'Renn', { sinceRank: at })], ['Ilva', 'Renn']);
+    const ends = expand(
+      seed, [rel('Ilva', 'Renn', { untilRank: at })], ['Ilva', 'Renn']);
+
+    expect(starts.cast.map((c) => c.name)).toContain('Renn');
+    expect(ends.cast.map((c) => c.name)).not.toContain('Renn');
+  });
+
+  it('does not expand a secret relationship', () => {
+    // The divergence from doc 03, and the reason for it: step 4 filters facts,
+    // not relationships. A secret one traversed here would put its other end in
+    // the brief with no spoiler check at all — "the Grey Warden" expanded to
+    // Kaelen in chapter five.
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const out = expand(
+      seed, [rel('Ilva', 'Kaelen', { isSecret: true })], ['Ilva', 'Kaelen']);
+    expect(out.cast.map((c) => c.name)).toEqual(['Ilva']);
+    expect(out.links).toEqual([]);
+  });
+
+  it('stops at one hop when the beats say nothing', () => {
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const out = expand(
+      seed,
+      [rel('Ilva', 'Renn'), rel('Renn', 'Ossa')],
+      ['Ilva', 'Renn', 'Ossa'],
+    );
+    expect(out.cast.map((c) => c.name)).toEqual(['Ilva', 'Renn']);
+  });
+
+  it('stops at one hop when the beats name somebody else', () => {
+    // Having beats is not the exception — having beats that name the entity is.
+    // Without this the guard above is only doing the work of "are there beats
+    // at all", and every planned scene would quietly expand two deep.
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+      beats: [beat('She waits for the tide', 'And it does not turn.')],
+    }));
+    const out = expand(
+      seed,
+      [rel('Ilva', 'Renn'), rel('Renn', 'Ossa')],
+      ['Ilva', 'Renn', 'Ossa'],
+    );
+    expect(out.cast.map((c) => c.name)).toEqual(['Ilva', 'Renn']);
+  });
+});
+
+describe('the second hop a beat earns', () => {
+  it('admits an entity two steps away that a beat names', () => {
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+      beats: [beat('Ossa refuses to sign')],
+    }));
+    const out = expand(
+      seed,
+      [rel('Ilva', 'Renn'), rel('Renn', 'Ossa')],
+      ['Ilva', 'Renn', 'Ossa'],
+    );
+    expect(out.cast.map((c) => c.name)).toEqual(['Ilva', 'Ossa', 'Renn']);
+    expect(out.links.find((l) => l.toEntityId === 'Ossa'))
+      .toMatchObject({ fromEntityId: 'Renn', hop: 2 });
+  });
+
+  it('accepts the name a beat actually uses', () => {
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+      beats: [beat('The turn', 'And the harbourmaster says no.')],
+    }));
+    const out = expand(
+      seed,
+      [rel('Ilva', 'Renn'), rel('Renn', 'Ossa')],
+      ['Ilva', 'Renn', 'Ossa'],
+      new Map([['Ossa', ['the harbourmaster']]]),
+    );
+    expect(out.cast.map((c) => c.name)).toContain('Ossa');
+  });
+
+  it('never takes a third', () => {
+    // Named in a beat is not a licence to keep walking. Three hops from the
+    // point of view is the whole world again, which is the thing doc 03's limit
+    // exists to stop.
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+      beats: [beat('Ossa and Pell both refuse')],
+    }));
+    const out = expand(
+      seed,
+      [rel('Ilva', 'Renn'), rel('Renn', 'Ossa'), rel('Ossa', 'Pell')],
+      ['Ilva', 'Renn', 'Ossa', 'Pell'],
+    );
+    expect(out.cast.map((c) => c.name)).not.toContain('Pell');
+  });
+});
+
+describe('what the hop does with what it cannot answer', () => {
+  it('names an entity it could not resolve instead of dropping it', () => {
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const out = expand(seed, [rel('Ilva', 'ghost')], ['Ilva']);
+    expect(out.unresolved).toEqual([{ kind: 'entity', id: 'ghost' }]);
+    expect(out.cast.map((c) => c.name)).toEqual(['Ilva']);
+  });
+
+  it('leaves the seed it was given untouched', () => {
+    // Step 1 is pure and this has to be too: compiling the same brief twice
+    // must not give a different answer the second time.
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Ilva', role: 'focus' }],
+      entities: world('Ilva'),
+    }));
+    const before = JSON.stringify(seed);
+    expand(seed, [rel('Ilva', 'ghost'), rel('Ilva', 'Renn')], ['Ilva', 'Renn']);
+    expect(JSON.stringify(seed)).toBe(before);
+  });
+
+  it('puts what is in the scene ahead of what was reached from it', () => {
+    // Same role, so the tie-break decides, and it is not the name: somebody
+    // standing in the room outranks somebody a relationship dragged in, however
+    // the alphabet feels about it.
+    const seed = seedBrief(input({
+      mentions: [{ entityId: 'Zzz', role: 'mentioned' }],
+      entities: world('Zzz'),
+    }));
+    const out = expand(seed, [rel('Zzz', 'Aaa')], ['Zzz', 'Aaa']);
+    expect(out.cast.map((c) => c.name)).toEqual(['Zzz', 'Aaa']);
   });
 });
