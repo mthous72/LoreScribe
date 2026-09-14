@@ -8,6 +8,7 @@ import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { CodexRepository } from '../data/codexRepository';
 import { SearchRepository } from '../data/searchRepository';
 import { FactsRepository } from '../data/factsRepository';
+import { VersionsRepository } from '../data/versionsRepository';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -27,6 +28,7 @@ interface Ready {
   codex: CodexRepository;
   search: SearchRepository;
   facts: FactsRepository;
+  versions: VersionsRepository;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -42,6 +44,16 @@ interface Ready {
    * not something to race — it is something to wait for.
    */
   registerFlush: (flush: () => Promise<void>) => () => void;
+  /**
+   * Run every registered flush now, and wait for all of them.
+   *
+   * The handover path calls this on its way out, but so does anything that
+   * reads the database expecting to see what is on the screen — keeping a
+   * version of a scene, above all. A snapshot taken while the last sentence is
+   * still sitting behind the editor's debounce is a snapshot missing the last
+   * sentence, and the writer has no way to tell.
+   */
+  flushAll: () => Promise<void>;
 }
 type DbState =
   | { state: 'opening' }
@@ -69,6 +81,16 @@ export function DbProvider({ children }: { children: ReactNode }) {
     return () => { flushes.current.delete(flush); };
   }, []);
 
+  /**
+   * Everything anyone is holding, written now.
+   *
+   * Settled rather than raced: one failing flush must not stop the others, and
+   * every one of them is somebody's prose.
+   */
+  const flushAll = useCallback(async () => {
+    await Promise.allSettled([...flushes.current].map((f) => f()));
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let driver: WorkerSqlDriver | null = null;
@@ -76,16 +98,6 @@ export function DbProvider({ children }: { children: ReactNode }) {
     let beat: ReturnType<typeof setInterval> | null = null;
     const holderId = sessionId;
     const holderLabel = 'another tab on this device';
-
-    /**
-     * Everything anyone is holding, written before we let go.
-     *
-     * Settled rather than raced: one failing flush must not stop the others,
-     * and every one of them is somebody's prose.
-     */
-    const flushAll = async () => {
-      await Promise.allSettled([...flushes.current].map((f) => f()));
-    };
 
     /** Give up the database so a waiting context can have it. */
     const yieldDatabase = async () => {
@@ -171,17 +183,19 @@ export function DbProvider({ children }: { children: ReactNode }) {
             (sql: string, params: unknown[] = []) => driver!.query(sql, params, 'all');
         }
 
+        const manuscript = new ManuscriptRepository(driver);
         const storage = await requestPersistence();
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
         setState({
           state: 'ready', driver, db: makeDb(driver),
           projects: new ProjectRepository(driver),
-          manuscript: new ManuscriptRepository(driver),
+          manuscript,
           codex: new CodexRepository(driver),
           search: new SearchRepository(driver),
           facts: new FactsRepository(driver),
-          diagnostics, storage, uncleanShutdown, registerFlush,
+          versions: new VersionsRepository(driver, manuscript),
+          diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {
         lock?.release();
@@ -214,7 +228,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
         l?.release();
       })();
     };
-  }, [registerFlush]);
+  }, [registerFlush, flushAll]);
 
   return <Ctx.Provider value={state}>{children}</Ctx.Provider>;
 }

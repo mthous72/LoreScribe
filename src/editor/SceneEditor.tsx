@@ -64,14 +64,26 @@ function saveDelay(): number {
 
 type SaveState = 'saved' | 'unsaved' | 'saving' | 'failed';
 
-export function SceneEditor({ projectId, scene }: { projectId: string; scene: SceneSummary }) {
+export function SceneEditor({ projectId, scene, reloadToken = 0 }: {
+  projectId: string;
+  scene: SceneSummary;
+  /**
+   * Bump to reload the prose from the database and start the editor over.
+   *
+   * For one case: something outside the editor replaced the scene's text — a
+   * restored draft. The editor owns the document in memory, so without this it
+   * would keep showing the prose that was replaced, and its next autosave would
+   * put that prose straight back over the restore.
+   */
+  reloadToken?: number;
+}) {
   const db = useDb();
   // Tagged with the scene it belongs to, rather than cleared when the scene
   // changes: for one render after switching scenes the old content is still in
   // state, and mounting the editor with it would show the previous scene's
   // prose under the new scene's id — which the first autosave would then write.
   const [loaded, setLoaded] = useState<
-    { sceneId: string; json: string | null; aliases: AliasEntry[] } | null>(null);
+    { sceneId: string; token: number; json: string | null; aliases: AliasEntry[] } | null>(null);
 
   useEffect(() => {
     if (db.state !== 'ready') return;
@@ -82,22 +94,27 @@ export function SceneEditor({ projectId, scene }: { projectId: string; scene: Sc
         loadAliases(db.driver, projectId),
       ]);
       if (!cancelled) {
-        setLoaded({ sceneId: scene.id, json: content?.contentJson ?? null, aliases });
+        setLoaded({
+          sceneId: scene.id, token: reloadToken, json: content?.contentJson ?? null, aliases,
+        });
       }
     })();
     return () => { cancelled = true; };
-  }, [db, projectId, scene.id]);
+  }, [db, projectId, scene.id, reloadToken]);
 
   if (db.state !== 'ready') return null;
-  if (loaded?.sceneId !== scene.id) {
+  if (loaded?.sceneId !== scene.id || loaded.token !== reloadToken) {
     return <p className="px-2 py-6 text-sm opacity-60">Opening the scene…</p>;
   }
 
   // Keyed on the scene so a different scene gets a fresh editor rather than a
-  // reused one whose undo history belongs to the previous scene's prose.
+  // reused one whose undo history belongs to the previous scene's prose. The
+  // token is in the key for the same reason: restored prose is not an edit of
+  // what was there, and an undo stack that stepped back across it would be
+  // undoing keystrokes the writer never made.
   return (
     <Surface
-      key={scene.id}
+      key={`${scene.id}:${reloadToken}`}
       projectId={projectId}
       scene={scene}
       initialJson={loaded.json}

@@ -110,10 +110,14 @@ arithmetic sits beside the expectation where a reviewer can check it.)
   transaction. Pointer events with a keyboard path, not HTML5 drag-and-drop,
   which never fires on touch — [D22](10-decisions.md).)*
 - Tiptap editor, autosave, word counts, scene versions and diff.
-  *(Editor, autosave and word counts built — `src/editor/SceneEditor.tsx`.
-  Scene versions and diff are not. Every path out of the autosave debounce is
-  closed and tested: hidden tab, scene switch, and a takeover in another tab,
-  which now waits for the save rather than racing it.)*
+  *(All built — `src/editor/SceneEditor.tsx`, `src/text/diff.ts`,
+  `src/data/versionsRepository.ts`, `src/app/SceneVersions.tsx`. Every path out
+  of the autosave debounce is closed and tested: hidden tab, scene switch, and a
+  takeover in another tab, which now waits for the save rather than racing it.
+  Keeping a draft and comparing against the page both flush that debounce first,
+  so neither can read a scene that is one sentence behind what the writer can
+  see. Restoring is non-destructive and the diff is paragraph-first —
+  [D24](10-decisions.md).)*
 - Alias-matching mention detection; backlinks; entity hover cards; `@` insert.
   *(All four built. The card opens on a tap rather than a hover, because hover
   does not exist on a phone and [D15](10-decisions.md) makes the phone a peer.
@@ -247,7 +251,7 @@ before LibriScribe goes to maintenance. Phase in brackets.
 
 - [ ] Import a `.libriscribe.json` bundle without loss *(1)*
 - [ ] Per-item editing of every object, prose included *(1)*
-- [ ] Version snapshots with diff and rollback *(1)*
+- [x] Version snapshots with diff and rollback *(1)*
 - [ ] Export: project archive, Markdown, plain text *(1)*
 - [ ] Write / rewrite **one scene**, propose → diff → accept, spliced in place *(2)*
 - [ ] Prompt/context preview before spending a token — the brief inspector *(2)*

@@ -505,3 +505,60 @@ Always, and regardless of how early the project feels — "nobody has data yet"
 is a claim about the world that stops being true without anyone noticing, and
 the moment it does, the cost lands on the one person who trusted the app with a
 manuscript.
+
+
+### D24 — A prose diff is paragraph-first, and a restore never destroys
+*Two decisions about `src/text/diff.ts` and `src/data/versionsRepository.ts`,
+recorded together because both are choices a reasonable implementation would
+make differently.*
+
+**The diff works on paragraphs first, words second.** The obvious thing is to
+run the `matchingBlocks` decomposition already in `src/text/similarity.ts` over
+the whole scene at word granularity. That produces confetti: with autojunk
+deliberately absent ([doc 12 §1.3](12-algorithms.md)), the matcher happily
+aligns the "the" in the first line with the "the" in the last, and a writer
+looking for what they changed gets a page of single-word matches instead. It is
+also the quadratic case — thousands of tokens against thousands.
+
+So a scene is first diffed as a list of paragraphs, which are long and
+near-unique and align cleanly, and the word diff runs only *inside* a pair that
+survived as a revision of each other. That bounds the cost to one paragraph at a
+time and makes the output read the way a writer thinks about their own
+revisions. Two paragraphs that share less than half their words are shown whole
+rather than paired, because a word diff in which every word is struck through
+and every word is new is longer and harder to read than simply showing both.
+
+The alternatives considered and rejected: a line diff (prose has no lines — a
+paragraph is one long line that reflows, so a one-word change marks the whole
+thing changed), and a character diff ("walked" against "waited" becomes a smear
+of single letters).
+
+**Restoring a draft keeps the page first.** `restore` snapshots whatever prose
+is currently in the scene, in its own committed transaction, *before* the
+overwrite — so the operation is always undoable by restoring the other one, and
+the screen offers that by name rather than expecting the writer to work out that
+the unnamed draft at the top of the list is their afternoon. The ordering is the
+whole of it: snapshot commits, then overwrite, so a failure between them leaves
+an extra copy of unchanged text rather than a hole where a scene was.
+
+Two integrations fall out of this and are the parts that could not be got right
+by reasoning about either side alone:
+
+- **Keeping a draft flushes the editor first.** Prose lives behind a debounce
+  for up to `SAVE_AFTER_MS`, so a snapshot read straight from the table is a
+  snapshot missing the sentence the writer just finished — and nothing on screen
+  would say so. `DbProvider` grew a public `flushAll` for this; the handover
+  path was already using it privately. The comparison flushes on an explicit
+  "compare" too, and deliberately does *not* flush on its two-second refresh: a
+  diff that forced a write every two seconds would take the debounce away from
+  the editor that owns it.
+- **Restoring remounts the editor.** The editor owns the document in memory.
+  Writing to the scene underneath it would leave the replaced prose on screen,
+  and the next autosave would put that prose straight back over the restore —
+  losing the restore silently, which is the worst available outcome. So the page
+  carries a `reloadToken`, separate from the token every tree write bumps, and a
+  restore changes the editor's key. It is in the key rather than just the
+  content because restored prose is not an edit of what was there: an undo stack
+  that stepped back across it would be undoing keystrokes the writer never made.
+
+Both were verified by deleting them and watching the Playwright suite fail.
