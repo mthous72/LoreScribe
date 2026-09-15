@@ -6,6 +6,7 @@ import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
 import { SceneCast } from './SceneCast';
 import { SceneBrief } from './SceneBrief';
+import { SceneDraft } from './SceneDraft';
 import { SceneDetails } from './SceneDetails';
 import { SceneBeats } from './SceneBeats';
 import { SceneVersions } from './SceneVersions';
@@ -212,6 +213,9 @@ export function ManuscriptPage() {
         <Link to={`/project/${projectId}/plan`} className="underline opacity-70">
           Plan — arcs, beats, and the scenes that carry them →
         </Link>
+        <Link to={`/project/${projectId}/laws`} className="underline opacity-70">
+          Laws — the rules the model follows →
+        </Link>
         <Link to={`/project/${projectId}/search`} className="underline opacity-70">
           Search →
         </Link>
@@ -336,6 +340,14 @@ export function ManuscriptPage() {
               projectId={projectId}
               sceneId={openScene.id}
               bookId={bookId}
+            />
+            <SceneDraft
+              key={`draft:${openScene.id}`}
+              projectId={projectId}
+              sceneId={openScene.id}
+              // The draft was appended in the database; the editor owns the
+              // document in memory and has to reload, as after a restore.
+              onAccepted={() => { setContentToken((n) => n + 1); reload(); }}
             />
             <SceneCast projectId={projectId} sceneId={openScene.id} />
             <SceneBrief
