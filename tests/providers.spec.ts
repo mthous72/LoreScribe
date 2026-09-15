@@ -79,10 +79,12 @@ test('testing the key gives one honest sentence, and removing it forgets the key
   await page.getByRole('button', { name: 'Test this key' }).click();
   // A made-up key is rejected where the network reaches OpenRouter, and gets
   // no answer where it does not. Either is said in one sentence; neither is
-  // the upstream's raw error text.
+  // the upstream's raw error text — and neither is "the key works", which the
+  // public model list would have said about any string at all.
   await expect(page.getByRole('status')).toHaveText(
     /^(OpenRouter rejected this key\.|No answer from OpenRouter — .*|OpenRouter (is rate-limiting|had a problem).*)$/,
     { timeout: 60_000 });
+  await expect(page.getByRole('status')).not.toContainText('The key works');
 
   await page.getByRole('button', { name: 'remove' }).click();
   await expect(page.getByRole('status')).toContainText('forgotten');

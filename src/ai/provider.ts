@@ -72,8 +72,22 @@ export interface ModelCapabilities {
   reasoningAllowance: number;
 }
 
+/** What a provider says about the key it was shown. Amounts in USD; null when not said. */
+export interface KeyInfo {
+  label: string | null;
+  usage: number | null;
+  limit: number | null;
+  limitRemaining: number | null;
+}
+
 export interface ProviderAdapter {
   id: string;
+  /**
+   * Prove the credential, on an endpoint that requires it. Listing models is
+   * not that on every provider — OpenRouter's is public — and a "test" that
+   * passes with a made-up key is worse than none.
+   */
+  verify?(): Promise<KeyInfo>;
   listModels(): Promise<ModelInfo[]>;
   capabilities(modelId: string): ModelCapabilities;
   chat(req: ChatRequest, signal: AbortSignal): AsyncIterable<ChatDelta>;

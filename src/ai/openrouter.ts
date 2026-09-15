@@ -1,7 +1,7 @@
 import {
   ProviderError,
-  type ChatDelta, type ChatRequest, type DataPolicy, type ModelCapabilities, type ModelInfo,
-  type ProviderAdapter,
+  type ChatDelta, type ChatRequest, type DataPolicy, type KeyInfo, type ModelCapabilities,
+  type ModelInfo, type ProviderAdapter,
 } from './provider';
 import { SseParser } from './sse';
 import { estimateTokens } from '../domain/briefBudget';
@@ -90,6 +90,27 @@ export class OpenRouterAdapter implements ProviderAdapter {
       'Content-Type': 'application/json',
       ...(options.referer ? { 'HTTP-Referer': options.referer } : {}),
       ...(options.title ? { 'X-Title': options.title } : {}),
+    };
+  }
+
+  /**
+   * `GET /auth/key`: the one cheap endpoint that rejects a bad key. `/models`
+   * answers 200 to anybody, which the browser test found out the hard way.
+   */
+  async verify(): Promise<KeyInfo> {
+    const res = await this.#call(`${this.#base}/auth/key`, { method: 'GET', headers: this.#headers });
+    const body = (await res.json()) as {
+      data?: {
+        label?: string | null; usage?: number | null;
+        limit?: number | null; limit_remaining?: number | null;
+      };
+    };
+    const d = body.data ?? {};
+    const num = (v: number | null | undefined) =>
+      (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    return {
+      label: d.label ?? null, usage: num(d.usage),
+      limit: num(d.limit), limitRemaining: num(d.limit_remaining),
     };
   }
 

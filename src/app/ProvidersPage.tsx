@@ -140,10 +140,17 @@ export function ProvidersPage() {
 
   const test = (account: ProviderAccount) => void act(async () => {
     const adapter = await adapterFor(account);
+    // The key first, on the endpoint that needs one. The model list is public
+    // and would say "works" to anything.
+    const info = await adapter.verify();
     const list = await adapter.listModels();
     list.sort((a, b) => a.name.localeCompare(b.name, 'en'));
     setModels((m) => ({ ...m, [account.id]: list }));
-    return `The key works. OpenRouter offers ${list.length.toLocaleString()} models to it.`;
+    const spend = info.usage === null ? ''
+      : info.limit === null
+        ? ` It has spent $${info.usage.toFixed(2)} so far, with no limit set.`
+        : ` It has spent $${info.usage.toFixed(2)} of a $${info.limit.toFixed(2)} limit.`;
+    return `The key works.${spend} OpenRouter offers ${list.length.toLocaleString()} models to it.`;
   });
 
   const remove = (account: ProviderAccount) => void act(async () => {

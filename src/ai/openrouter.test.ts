@@ -207,6 +207,28 @@ describe('the error vocabulary', () => {
   });
 });
 
+describe('verifying the key', () => {
+  it('asks the endpoint that needs the key, and reads back what it may spend', async () => {
+    const { calls, adapter: a } = adapter(() => new Response(JSON.stringify({
+      data: { label: 'sk-or-v1-…cdef', usage: 1.25, limit: 20, limit_remaining: 18.75 },
+    }), { status: 200 }));
+    expect(await a.verify()).toEqual({ label: 'sk-or-v1-…cdef', usage: 1.25, limit: 20, limitRemaining: 18.75 });
+    expect(calls[0]?.url).toBe('https://openrouter.ai/api/v1/auth/key');
+  });
+
+  it('rejects a made-up key as auth, where listing models would have said nothing', async () => {
+    const a = adapter(() => new Response(JSON.stringify({ error: { message: 'User not found.', code: 401 } }),
+      { status: 401 })).adapter;
+    await expect(a.verify()).rejects.toMatchObject({ code: 'auth', message: 'User not found.' });
+  });
+
+  it('copes with a key that has no limit', async () => {
+    const a = adapter(() => new Response(JSON.stringify({ data: { label: null, usage: 0, limit: null } }),
+      { status: 200 })).adapter;
+    expect(await a.verify()).toEqual({ label: null, usage: 0, limit: null, limitRemaining: null });
+  });
+});
+
 describe('the model list', () => {
   it('reads windows and prices, and remembers them for capabilities()', async () => {
     const { adapter: a } = adapter(() => new Response(JSON.stringify({ data: [{
