@@ -5,6 +5,7 @@ import { useReorder, type DropTarget } from '../ui/useReorder';
 import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
 import { SceneCast } from './SceneCast';
+import { SceneBrief } from './SceneBrief';
 import { SceneDetails } from './SceneDetails';
 import { SceneBeats } from './SceneBeats';
 import { SceneVersions } from './SceneVersions';
@@ -334,6 +335,12 @@ export function ManuscriptPage() {
               bookId={bookId}
             />
             <SceneCast projectId={projectId} sceneId={openScene.id} />
+            <SceneBrief
+              // Keyed on the scene: a compiled brief belongs to the scene it
+              // was compiled for, and the toggles with it.
+              key={`brief:${openScene.id}`}
+              sceneId={openScene.id}
+            />
             <SceneVersions
               // Keyed on the scene: the chosen comparison, the last message and
               // a half-typed draft name all belong to the scene they were made
