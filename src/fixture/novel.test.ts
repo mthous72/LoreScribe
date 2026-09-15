@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { NodeSqlDriver } from '../db/nodeDriver';
 import { FactsRepository } from '../data/factsRepository';
 import { PlanRepository } from '../data/planRepository';
-import { factVisibilityAt, negativeConstraints, type FactForVisibility } from '../domain/factVisibility';
+import {
+  factVisibilityAt, isKnowing, negativeConstraints, type FactForVisibility,
+} from '../domain/factVisibility';
 import { buildFixture, FIXTURE, type Fixture } from './novel';
 
 /**
@@ -41,8 +43,7 @@ async function forVisibility(): Promise<FactForVisibility[]> {
     ...f,
     knownFrom: Object.fromEntries(
       (knowledge.get(f.id) ?? [])
-        // Being lied to is not knowing — the same exclusion the facts page makes.
-        .filter((k) => k.belief === 'knows' || k.belief === 'suspects')
+        .filter((k) => isKnowing(k.belief))
         .map((k) => [k.entityId, k.knownFromRank])),
   }));
 }

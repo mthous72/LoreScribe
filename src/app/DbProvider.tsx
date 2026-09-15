@@ -11,6 +11,11 @@ import { VersionsRepository } from '../data/versionsRepository';
 import { ImportRepository } from '../data/importRepository';
 import { ExportRepository } from '../data/exportRepository';
 import { PlanRepository } from '../data/planRepository';
+import { BriefRepository } from '../data/briefRepository';
+import { ProviderRepository } from '../data/providerRepository';
+import {
+  EncryptedCredentialStore, IndexedDbVault, MemoryVault, type CredentialStore,
+} from '../ai/credentials';
 import { requestPersistence, type StorageStatus } from '../data/storage';
 import { takeOverLockRecord, beatLockRecord, releaseLockRecord, type StaleLock } from '../data/lockRecord';
 import { DatabaseLock } from '../lock/databaseLock';
@@ -33,6 +38,10 @@ interface Ready {
   imports: ImportRepository;
   exports: ExportRepository;
   plan: PlanRepository;
+  brief: BriefRepository;
+  providers: ProviderRepository;
+  /** Where the API key actually lives — D30. Never the database. */
+  credentials: CredentialStore;
   diagnostics: Diagnostics;
   storage: StorageStatus;
   /** Non-null when the previous session died without releasing. */
@@ -204,6 +213,12 @@ export function DbProvider({ children }: { children: ReactNode }) {
           imports: new ImportRepository(driver, codex, facts, manuscript),
           exports: new ExportRepository(driver),
           plan: new PlanRepository(driver),
+          brief: new BriefRepository(driver),
+          providers: new ProviderRepository(driver),
+          // In memory when the browser refuses IndexedDB: the key then lasts
+          // the session and the screen says so by asking for it again.
+          credentials: new EncryptedCredentialStore(
+            typeof indexedDB === 'undefined' ? new MemoryVault() : new IndexedDbVault()),
           diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {

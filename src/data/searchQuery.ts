@@ -12,6 +12,8 @@
  * than by a list of characters someone remembered to strip.
  */
 
+import { STOPWORDS } from '../text/repetition';
+
 /** A double-quoted run is a phrase: "the long hall" finds those words in order. */
 const PHRASE = /"([^"]*)"/g;
 /** Letters and numbers only. Everything else is punctuation, not search intent. */
@@ -59,6 +61,31 @@ export function ftsQuery(input: string, options: SearchQueryOptions = {}): strin
   // both, and OR would bury the result they wanted under everything containing
   // "the".
   return terms.join(' ');
+}
+
+/**
+ * The other query shape: *any* of these words, for a seed rather than a search.
+ *
+ * `ftsQuery` ANDs its terms because a writer typing two words means both. A
+ * seed is the opposite case — the scene brief's step 7 hands over a purpose and
+ * the beat text, forty words of it, and a row would have to contain every one
+ * of them to match under AND, which no row does. Here each content word is a
+ * term on its own and bm25 ranks by how many land, which is what "find me
+ * things about this" means. Function words are dropped first, with the ban
+ * list's own stopword set so the two never disagree about what a function word
+ * is; short tokens go with them. Capped, because forty ORed terms is a slow
+ * query that ranks no better than twenty-four.
+ */
+export function ftsAnyOf(input: string, limit = 24): string | null {
+  const seen = new Set<string>();
+  for (const w of words(input)) {
+    const t = w.toLowerCase();
+    if (t.length <= 2 || STOPWORDS.has(t) || seen.has(t)) continue;
+    seen.add(t);
+    if (seen.size >= limit) break;
+  }
+  if (!seen.size) return null;
+  return [...seen].map((t) => `"${t}"`).join(' OR ');
 }
 
 /**

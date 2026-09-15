@@ -841,3 +841,27 @@ it.
 the fixture novel moves behind beats — a fixture without them cannot exercise
 beat-driven generation, so building it first would measure the wrong thing.
 
+### D30 — The API key is encrypted with a device key; the database row holds only a handle
+The key is a credential and the manuscript is not, so the two are treated
+differently ([D12](10-decisions.md)): the database is unencrypted at rest and the
+key is encrypted. The key is sealed with an AES-GCM **device key** that WebCrypto
+generates non-extractable and the browser keeps as an opaque object in IndexedDB,
+with the ciphertext beside it. `provider_account.credential_ref` is a handle into
+that store and nothing more; the key never reaches SQLite, the archive export, a
+log, or `ai_run`.
+
+What this protects: the key cannot be read from a storage dump, a copied browser
+profile, the database file or an exported archive, and it never travels in a file
+the writer hands to someone. What it does not protect against: code running as
+this origin on this device, which can ask the browser to decrypt exactly as the app
+does. That is the boundary D12 already draws, and the providers screen says so in
+those words.
+
+Doc 01 sketched a passphrase-derived key. That is stronger and costs an unlock
+screen on every open — the friction D12 rejected for the database, and a recovery
+story with no server to reset against. Rejected for now; the `KeyVault` interface
+leaves the door open to wrapping the device key with a passphrase, or replacing it
+with the Android Keystore in Phase 6, without touching the store. The Phase 2
+roadmap bullet that said the key would live unencrypted in `provider_account`
+"consistent with D12" was wrong about D12, which says the key stays encrypted, and
+has been corrected.
