@@ -1,14 +1,23 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NodeSqlDriver } from '../db/nodeDriver';
 import { RunsRepository } from './runsRepository';
+import { ManuscriptRepository } from './manuscriptRepository';
 
 let driver: NodeSqlDriver;
 let runs: RunsRepository;
+/** Two real scenes: `scene_id` is a foreign key, and a run about a scene that is not there is refused. */
+let s1: string;
+let s2: string;
 
 beforeEach(async () => {
   driver = await NodeSqlDriver.open();
   runs = new RunsRepository(driver);
   await driver.query('INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, 1, 1)', ['p1', 'P'], 'run');
+  const manuscript = new ManuscriptRepository(driver);
+  const book = await manuscript.createBook('p1', 'B');
+  const chapter = await manuscript.createChapter(book.id, 'C');
+  s1 = (await manuscript.createScene(chapter.id, 'One')).id;
+  s2 = (await manuscript.createScene(chapter.id, 'Two')).id;
 });
 
 describe('RunsRepository', () => {
@@ -39,16 +48,16 @@ describe('RunsRepository', () => {
     const start = (sceneId: string | null) => runs.start('p1', {
       sceneId, purpose: 'draft_beat', provider: 'openrouter', model: 'm', params: {}, briefJson: '{}', promptRendered: '',
     });
-    const a = await start('s1');
-    const b = await start('s1');
-    const c = await start('s2');
+    const a = await start(s1);
+    const b = await start(s1);
+    const c = await start(s2);
     for (const [id, cost] of [[a, 0.5], [b, 0.25], [c, 1]] as const) {
       await runs.finish(id, {
         outputText: 'x', tokensIn: 1, tokensOut: 1, tokensReasoning: 0, costUsd: cost,
         latencyMs: 1, status: 'ok', servedBy: null,
       });
     }
-    expect((await runs.list('p1', 's1')).map((r) => r.id)).toEqual([b, a]);
+    expect((await runs.list('p1', s1)).map((r) => r.id)).toEqual([b, a]);
     expect((await runs.list('p1')).length).toBe(3);
     expect(await runs.spentSince('p1', 0)).toBeCloseTo(1.75);
     expect(await runs.spentSince('p1', Date.now() + 1000)).toBe(0);
