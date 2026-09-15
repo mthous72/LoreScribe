@@ -32,8 +32,10 @@
  *
  * **Every constraint block is fenced and its bindingness restated after it**
  * ([doc 09 §14](../../docs/09-libriscribe-review.md)) — explicit open and close
- * delimiters, then *these rules are absolute*. Adherence to a fenced and
- * restated block measurably beats a bare list, and it costs a line.
+ * delimiters, then a sentence saying the block binds. The shape is borrowed
+ * from LibriScribe; the words are not, because the words are expression and
+ * the shape is the idea ([D10, D11](../../docs/10-decisions.md)). Adherence to a
+ * fenced and restated block measurably beats a bare list, and it costs a line.
  *
  * **Canon is one binding sentence over the FACTS block, not a restatement.**
  * Step 8 derived a canon law from every admitted canon fact and left the
@@ -161,7 +163,7 @@ function renderLaws(laws: readonly BriefLaw[]): string | null {
       ...(l.examplesBad ? [`  Bad: ${l.examplesBad}`] : []),
     ].join('\n')).join('\n')}`);
   return fence('LAWS', groups.join('\n'),
-    'These rules are absolute. Every line you write must comply with them.');
+    'The laws above bind every sentence you write. None of them bends.');
 }
 
 function renderNegative(negative: readonly NegativeFact[]): string | null {

@@ -132,7 +132,7 @@ describe('the shape of the text', () => {
   it('fences every block and restates the binding after the constraint blocks', () => {
     const { text } = compile();
     expect(block(text, 'LAWS')?.binding)
-      .toBe('These rules are absolute. Every line you write must comply with them.');
+      .toBe('The laws above bind every sentence you write. None of them bends.');
     expect(block(text, 'BEATS')?.binding).toMatch(/must accomplish every beat/);
     expect(block(text, 'BANS')?.binding).toMatch(/bans are absolute/);
     expect(block(text, 'CAST AND SETTING')?.binding).toBe('');
