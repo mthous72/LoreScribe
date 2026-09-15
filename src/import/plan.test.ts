@@ -182,3 +182,40 @@ describe('fields onto columns', () => {
     expect(defaultFieldTarget('Status')).toEqual({ kind: 'column', column: 'status' });
   });
 });
+
+describe('rules and the plan', () => {
+  const HOUSE = '# House Style\n\n## House\n\n- No em dashes.\n- Two spaces after a period.\n- Trust the reader.\n';
+  const LAWS = '# Laws\n\nPower core in the chest.\n\nOnce out she cannot go home.\n';
+  const OUTLINE = [
+    '# Outline', '', '## Movement 1. The door', '',
+    '#### 1. Night 0 — written', '', '1. He knocks.', '',
+    '#### 2. Wren — not written', '', '1. Wren counts.', '',
+  ].join('\n');
+
+  it('offers a style file as style laws and a laws file as canon laws', () => {
+    expect(shape(run({ 'reference/house-style.md': HOUSE }))).toEqual(['House Style:law']);
+    const [law] = run({ 'reference/laws.md': LAWS });
+    expect(law?.destination).toEqual({ kind: 'law', category: 'canon' });
+    expect(law?.reason).toContain('2 of them');
+    const [style] = run({ 'reference/house-style.md': HOUSE });
+    expect(style?.destination).toEqual({ kind: 'law', category: 'style' });
+    expect(style?.reason).toContain('one per bullet');
+  });
+
+  it('offers an outline as the plan, and claims its sections with it', () => {
+    const out = run({ 'reference/outline.md': OUTLINE });
+    expect(shape(out)).toEqual(['Outline:plan']);
+  });
+
+  it('does not read a file of prose sections as a plan, nor a scene as laws', () => {
+    // Two H2s of prose and no numbered headings: a plan file in name only.
+    expect(shape(run({ 'reference/plan.md': '# Plan\n\n## Time\n\nWeeks.\n\n## Money\n\nNinety.\n' })))
+      .toEqual(['Time:skip', 'Money:skip']);
+    // Prose under scenes/ that happens to mention the word "rules".
+    expect(shape(run({ 'scenes/rules.md': '# The rules\n\nShe broke them.\n' }))).toEqual(['The rules:scene']);
+  });
+
+  it('never lets a laws file be mistaken for a list of characters', () => {
+    expect(shape(run({ 'characters/laws.md': LAWS }))).toEqual(['Laws:entity/character']);
+  });
+});

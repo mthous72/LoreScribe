@@ -3,7 +3,9 @@ import { Link, useParams } from 'react-router-dom';
 import { useDb } from './DbProvider';
 import { ACCEPTED, parseFiles, type ReadResult } from '../import/read';
 import { walk, type SourceDoc } from '../import/source';
-import { suggestAll, nameKey, type Destination, type SuggestContext } from '../import/plan';
+import {
+  suggestAll, nameKey, type Destination, type LawCategory, type SuggestContext,
+} from '../import/plan';
 import {
   decisionKey, type Decisions, type ImportRun, type ProposalRow,
 } from '../data/importRepository';
@@ -30,6 +32,10 @@ const DESTINATIONS = (types: string[]): { value: string; text: string }[] => [
   ...types.map((t) => ({ value: `entity:${t}`, text: `Codex entry — ${t}` })),
   { value: 'knowledge', text: 'Facts, from the table in it' },
   { value: 'scene', text: 'A scene, with this prose' },
+  { value: 'plan', text: 'The plan — acts, planned scenes and their beats' },
+  { value: 'law:style', text: 'Laws — style, one per line' },
+  { value: 'law:canon', text: 'Laws — canon, one per line' },
+  { value: 'law:content', text: 'Laws — content, one per line' },
   { value: 'note', text: 'A note' },
 ];
 
@@ -37,11 +43,13 @@ const toDestination = (value: string): Destination => {
   if (value.startsWith('entity:')) return { kind: 'entity', typeKey: value.slice(7) };
   if (value === 'knowledge') return { kind: 'knowledge', factColumn: 0 };
   if (value === 'scene') return { kind: 'scene' };
+  if (value === 'plan') return { kind: 'plan' };
+  if (value.startsWith('law:')) return { kind: 'law', category: value.slice(4) as LawCategory };
   if (value === 'note') return { kind: 'note' };
   return { kind: 'skip' };
 };
 const fromDestination = (d: Destination): string =>
-  (d.kind === 'entity' ? `entity:${d.typeKey}` : d.kind);
+  (d.kind === 'entity' ? `entity:${d.typeKey}` : d.kind === 'law' ? `law:${d.category}` : d.kind);
 
 export function ImportPage() {
   const db = useDb();
@@ -378,6 +386,16 @@ function describe(p: ProposalRow): string {
   if (p.targetTable === 'fact') return payload.statement ?? '';
   if (p.targetTable === 'fact_knowledge') {
     return `${payload.entityName} — ${payload.belief}${payload.learnedHow ? ` (${payload.learnedHow})` : ''}`;
+  }
+  if (p.targetTable === 'law') return `${payload.category}: ${payload.ruleText ?? payload.title}`;
+  if (p.targetTable === 'plan') {
+    type Parts = { title: string | null; sections: { beats: unknown[] }[] }[];
+    const parts = (p.payload as { parts?: Parts }).parts ?? [];
+    const sections = parts.flatMap((x) => x.sections);
+    const beats = sections.reduce((n, x) => n + x.beats.length, 0);
+    const acts = parts.filter((x) => x.title !== null).length;
+    return `${payload.arcName}: ${acts ? `${acts} act${acts === 1 ? '' : 's'}, ` : ''}`
+      + `${sections.length} planned scene${sections.length === 1 ? '' : 's'}, ${beats} beat${beats === 1 ? '' : 's'}`;
   }
   return payload.title ?? '';
 }

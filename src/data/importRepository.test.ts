@@ -3,6 +3,7 @@ import { NodeSqlDriver } from '../db/nodeDriver';
 import { CodexRepository } from './codexRepository';
 import { FactsRepository } from './factsRepository';
 import { ManuscriptRepository } from './manuscriptRepository';
+import { PlanRepository } from './planRepository';
 import { ImportRepository, readKnowledgeCell, decisionKey } from './importRepository';
 import { parseMarkdown } from '../import/markdown';
 import type { Decisions } from './importRepository';
@@ -34,7 +35,7 @@ beforeEach(async () => {
   codex = new CodexRepository(driver);
   facts = new FactsRepository(driver);
   const manuscript = new ManuscriptRepository(driver);
-  repo = new ImportRepository(driver, codex, facts, manuscript);
+  repo = new ImportRepository(driver, codex, facts, manuscript, new PlanRepository(driver));
   await driver.query(
     'INSERT INTO project (id,title,created_at,updated_at) VALUES (?,?,?,?)',
     [PROJECT, 'Ashfall', 1, 1], 'run');
@@ -265,5 +266,82 @@ describe('prose', () => {
     const scenes = await all(
       'SELECT s.title, s.content_text, c.title FROM scene s JOIN chapter c ON c.id = s.chapter_id');
     expect(scenes).toEqual([['Arrival', 'The harbour was empty.', 'Imported']]);
+  });
+});
+
+describe('laws and the plan', () => {
+  const HOUSE = '# House Style\n\n## House\n\n- No em dashes.  None.\n- Two spaces after a period.\n- Trust the reader.\n';
+  const OUTLINE = [
+    '# Outline', '', '## Movement 1. The door', '',
+    '#### 1. Night 0 — written', '', 'She lets him in.', '', '1. He knocks twice.  She knows it.', '2. The price.', '',
+    '#### 2. Wren — not written', '', '1. Wren counts.', '',
+    '## Movement 2. The week', '',
+    '#### 3. Old partner — not written', '', '1. They find her.', '',
+  ].join('\n');
+
+  it('applies a rule list as laws, one per bullet, and takes them back', async () => {
+    const { runId } = await stage({ 'reference/house-style.md': HOUSE }, {
+      [decisionKey('reference/house-style.md', '0')]: { kind: 'law', category: 'style' },
+    });
+    await repo.acceptAll(runId);
+    const result = await repo.apply(PROJECT, runId);
+    expect(result).toEqual({ applied: 3, failed: [] });
+    const laws = await all(
+      `SELECT category, severity, title, rule_text, scope_type, active FROM law
+       WHERE project_id = ? AND deleted_at IS NULL ORDER BY sort_key`, [PROJECT]);
+    expect(laws).toEqual([
+      ['style', 'must', 'No em dashes', 'No em dashes.  None.', 'project', 1],
+      ['style', 'must', 'Two spaces after a period', 'Two spaces after a period.', 'project', 1],
+      ['style', 'must', 'Trust the reader', 'Trust the reader.', 'project', 1],
+    ]);
+
+    await repo.undo(runId);
+    expect(await count('law')).toBe(0);
+  });
+
+  it('applies an outline as acts, planned scenes and linked beats, and takes it all back', async () => {
+    const { runId, proposals } = await stage({ 'reference/outline.md': OUTLINE }, {
+      [decisionKey('reference/outline.md', '0')]: { kind: 'plan' },
+    });
+    expect(proposals).toBe(1);
+    await repo.acceptAll(runId);
+    expect(await repo.apply(PROJECT, runId)).toEqual({ applied: 1, failed: [] });
+
+    expect((await all('SELECT title FROM part WHERE deleted_at IS NULL ORDER BY sort_key')).flat())
+      .toEqual(['The door', 'The week']);
+    expect(await all(
+      `SELECT c.number, c.title, p.title, s.status, s.summary FROM chapter c
+       JOIN scene s ON s.chapter_id = c.id LEFT JOIN part p ON p.id = c.part_id
+       WHERE c.deleted_at IS NULL ORDER BY c.sort_key`)).toEqual([
+      [1, 'Night 0', 'The door', 'drafted', 'She lets him in.'],
+      [2, 'Wren', 'The door', 'planned', null],
+      [3, 'Old partner', 'The week', 'planned', null],
+    ]);
+    expect((await all('SELECT name FROM arc WHERE deleted_at IS NULL')).flat()).toEqual(['Outline']);
+    // Every beat belongs to the outline's arc and is linked to its own scene.
+    expect(await all(
+      `SELECT b.title, b.summary, s.title FROM beat b
+       JOIN beat_scene bs ON bs.beat_id = b.id JOIN scene s ON s.id = bs.scene_id
+       WHERE b.deleted_at IS NULL ORDER BY b.sort_key`)).toEqual([
+      ['He knocks twice', 'He knocks twice.  She knows it.', 'Night 0'],
+      ['The price', null, 'Night 0'],
+      ['Wren counts', null, 'Wren'],
+      ['They find her', null, 'Old partner'],
+    ]);
+
+    await repo.undo(runId);
+    for (const table of ['part', 'chapter', 'scene', 'arc', 'beat']) {
+      expect(await count(table), table).toBe(0);
+    }
+  });
+
+  it('splits a name from the description sharing its heading', async () => {
+    const { runId } = await stage({ 'characters/wren.md': '# Wren, dock clerk, male\n\nHe counts.\n' }, {
+      [decisionKey('characters/wren.md', '0')]: { kind: 'entity', typeKey: 'character' },
+    });
+    await repo.acceptAll(runId);
+    await repo.apply(PROJECT, runId);
+    expect(await all('SELECT name, summary FROM entity WHERE deleted_at IS NULL'))
+      .toEqual([['Wren', 'dock clerk, male']]);
   });
 });

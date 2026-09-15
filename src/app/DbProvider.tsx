@@ -199,6 +199,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
         const manuscript = new ManuscriptRepository(driver);
         const codex = new CodexRepository(driver);
         const facts = new FactsRepository(driver);
+        const plan = new PlanRepository(driver);
         const storage = await requestPersistence();
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
@@ -210,9 +211,9 @@ export function DbProvider({ children }: { children: ReactNode }) {
           search: new SearchRepository(driver),
           facts,
           versions: new VersionsRepository(driver, manuscript),
-          imports: new ImportRepository(driver, codex, facts, manuscript),
+          imports: new ImportRepository(driver, codex, facts, manuscript, plan),
           exports: new ExportRepository(driver),
-          plan: new PlanRepository(driver),
+          plan,
           brief: new BriefRepository(driver),
           providers: new ProviderRepository(driver),
           // In memory when the browser refuses IndexedDB: the key then lasts

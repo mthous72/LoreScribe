@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NodeSqlDriver } from '../db/nodeDriver';
 import { ManuscriptRepository } from './manuscriptRepository';
+import { PlanRepository } from './planRepository';
 import { CodexRepository } from './codexRepository';
 import { FactsRepository } from './factsRepository';
 import { ImportRepository, decisionKey } from './importRepository';
@@ -37,7 +38,7 @@ beforeEach(async () => {
   manuscript = new ManuscriptRepository(driver);
   codex = new CodexRepository(driver);
   facts = new FactsRepository(driver);
-  imports = new ImportRepository(driver, codex, facts, manuscript);
+  imports = new ImportRepository(driver, codex, facts, manuscript, new PlanRepository(driver));
   repo = new ExportRepository(driver);
   for (const id of [PROJECT, OTHER]) {
     await driver.query(
