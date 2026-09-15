@@ -215,6 +215,9 @@ export function ManuscriptPage() {
         <Link to={`/project/${projectId}/search`} className="underline opacity-70">
           Search →
         </Link>
+        <Link to={`/project/${projectId}/providers`} className="underline opacity-70">
+          Providers — your key, and which model does which job →
+        </Link>
         <Link to={`/project/${projectId}/import`} className="underline opacity-70">
           Import — bring a bible in →
         </Link>
