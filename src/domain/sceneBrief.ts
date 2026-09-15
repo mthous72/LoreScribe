@@ -27,7 +27,7 @@
  */
 
 import {
-  factVisibilityAt, negativeConstraints,
+  factVisibilityAt, isKnowing, negativeConstraints,
   type FactForVisibility, type FactStatus,
 } from './factVisibility';
 import type { MentionRole } from './mentions';
@@ -453,16 +453,16 @@ export function expandOneHop(input: ExpandInput): Expanded {
  * and a subject-less fact is a statement about the world with no dossier to
  * belong to. That is a law, and laws are step 8.
  *
- * **Only `knows` is knowledge.** `fact_knowledge.belief` is one of
- * `knows | suspects | believes_false | denies`, and `factVisibilityAt` takes a
- * flat map of who-knows-when — so somebody has to decide which of the four
- * counts, and this is the only place that sees the column. A POV who *suspects*
- * a thing does not know it, and one who *believes it false* emphatically does
- * not; admitting either would let the model write as settled something the
- * character has not worked out yet, which is the same failure as a spoiler with
- * a smaller blast radius. The belief is carried through on `povBelief` rather
- * than discarded, because "she suspects this and is wrong" is worth a line in
- * step 5 even when the fact itself stays out.
+ * **Which beliefs count as knowing is decided once, in `factVisibility`.**
+ * `fact_knowledge.belief` is one of `knows | suspects | believes_false |
+ * denies`, and `factVisibilityAt` takes a flat map of who-knows-when — so
+ * somebody has to fold the column, and this step does it with `isKnowing`, the
+ * same predicate the facts page uses. A POV who *believes a thing false* does
+ * not know it, and admitting that would let the spoiler rule reveal a fact to a
+ * character who has been lied to. A POV who *suspects* does have it in mind and
+ * can act on it; the belief is carried through on `povBelief` so step 9 can say
+ * *suspects* rather than *knows*, and the model does not write a suspicion as
+ * settled.
  *
  * Certainty (`canon | planned | speculative`) is carried, not filtered. A
  * speculative fact is one the writer has not settled, and both silently
@@ -552,8 +552,6 @@ export interface AttachInput {
   facts: readonly FactRow[];
 }
 
-const KNOWS: Belief = 'knows';
-
 const asBelief = (raw: string): Belief | null =>
   (['knows', 'suspects', 'believes_false', 'denies'] as const)
     .find((b) => b === raw) ?? null;
@@ -579,7 +577,7 @@ export function attachFacts(input: AttachInput): Briefed {
   const forVisibility: FactForVisibility[] = input.facts.map((f) => {
     const knownFrom: Record<string, string | null> = {};
     for (const k of f.knowledge ?? []) {
-      if (k.belief === KNOWS) knownFrom[k.entityId] = k.knownFromRank;
+      if (isKnowing(k.belief)) knownFrom[k.entityId] = k.knownFromRank;
     }
     return {
       id: f.id,

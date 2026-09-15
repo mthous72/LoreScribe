@@ -217,19 +217,23 @@ function renderCast(dossiers: readonly Dossier[], rungs: readonly Rung[]): strin
 
 function factLine(f: BriefFact, povName: string | null): string {
   const tags: string[] = [];
+  const who = povName ?? 'the point of view';
   if (f.status === 'pov-knows') {
-    tags.push(`known to ${povName ?? 'the point of view'}, not yet to the reader`);
-  }
-  if (f.status === 'dramatic-irony') tags.push('the reader knows; the characters do not');
-  if (f.certainty !== 'canon') tags.push(`${f.certainty} — not yet settled`);
-  if (f.povBelief && f.povBelief !== 'knows') {
-    const who = povName ?? 'The point of view';
+    // A suspicion admitted on the POV's account is labelled as a suspicion, not
+    // as knowledge — the difference between a character acting on a hunch and
+    // narration stating a thing the reader has not been told.
+    tags.push(f.povBelief === 'suspects'
+      ? `${who} suspects this; the reader has not been told`
+      : `known to ${who}, not yet to the reader`);
+  } else if (f.povBelief && f.povBelief !== 'knows') {
     tags.push({
       suspects: `${who} suspects this`,
       believes_false: `${who} believes this is false`,
       denies: `${who} denies this`,
     }[f.povBelief]);
   }
+  if (f.status === 'dramatic-irony') tags.push('the reader knows; the characters do not');
+  if (f.certainty !== 'canon') tags.push(`${f.certainty} — not yet settled`);
   return `- ${f.statement.trim()}${tags.length ? ` (${tags.join('; ')})` : ''}`;
 }
 

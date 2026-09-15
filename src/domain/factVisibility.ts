@@ -59,6 +59,19 @@ export interface FactVisibility {
   include: boolean;
 }
 
+/**
+ * Which `fact_knowledge.belief` values mean the character has the fact in mind.
+ *
+ * The one statement of it. `believes_false` and `denies` are not knowledge —
+ * counting them would let the spoiler rule reveal a fact to a character who
+ * has been lied to about it. `suspects` counts: a character can act on a
+ * suspicion, and the brief labels it as one so the model does not write it as
+ * settled. The facts page, the fixture and the compiler all read this list,
+ * because two lists would eventually disagree about who knows what.
+ */
+export const KNOWING_BELIEFS: readonly string[] = ['knows', 'suspects'];
+export const isKnowing = (belief: string): boolean => KNOWING_BELIEFS.includes(belief);
+
 const atOrBefore = (rank: string | null, at: string): boolean => rank === null || rank <= at;
 
 /**

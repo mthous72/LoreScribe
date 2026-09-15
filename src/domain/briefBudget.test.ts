@@ -181,6 +181,13 @@ describe('what a fact line says', () => {
     }))).toContain('- k is so. (known to Ilva, not yet to the reader)');
   });
 
+  it('calls a suspicion a suspicion, not knowledge', () => {
+    expect(only(fact('s', 'Renn', {
+      revealedRank: null,
+      knowledge: [{ entityId: 'Ilva', belief: 'suspects', knownFromRank: 'a0' }],
+    }))).toContain('- s is so. (Ilva suspects this; the reader has not been told)');
+  });
+
   it('marks dramatic irony, an unsettled fact, and a wrong belief', () => {
     expect(only(fact('i', 'Renn', { revealedRank: null, isDramaticIrony: true })))
       .toContain('(the reader knows; the characters do not)');

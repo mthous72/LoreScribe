@@ -466,8 +466,8 @@ describe('what the hop does with what it cannot answer', () => {
  * that must only have one. What is tested here is the part doc 03 leaves to the
  * compiler: which facts get asked about, what happens to the answers, and the
  * three decisions the step had to make on its own — selection by subject,
- * subject-less facts as laws rather than facts, and only `knows` counting as
- * knowledge.
+ * subject-less facts as laws rather than facts, and which beliefs count as
+ * knowing (folded here, but decided once in `factVisibility`).
  */
 
 const fact = (id: string, subject: string | null, over: Partial<FactRow> = {}): FactRow => ({
@@ -555,13 +555,13 @@ describe('what the point of view is taken to know', () => {
     expect(out.facts[0]).toMatchObject({ status: 'pov-knows', povBelief: 'knows' });
   });
 
-  it('does not admit one the point of view merely suspects', () => {
-    // Suspecting is not knowing. Admitting it would let the model write as
-    // settled a thing the character has not worked out yet.
+  it('admits one the point of view suspects, and says it is a suspicion', () => {
+    // A character can act on a suspicion. What must not happen is the model
+    // writing it as settled, and that is what `povBelief` is carried for.
     const out = withFacts([secret({
       knowledge: [{ entityId: 'Ilva', belief: 'suspects', knownFromRank: 'a0' }],
     })]);
-    expect(out.facts).toEqual([]);
+    expect(out.facts[0]).toMatchObject({ status: 'pov-knows', povBelief: 'suspects' });
   });
 
   it('does not admit one the point of view believes false', () => {

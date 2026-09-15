@@ -17,7 +17,7 @@ import { sequenceRatio } from './similarity';
  * many NON-stopwords it carries, so a missing entry costs at most one marginal
  * candidate. Present to stop "out of the" and "he said that" dominating.
  */
-const STOPWORDS = new Set<string>([
+export const STOPWORDS = new Set<string>([
   'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are',
   'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but',
   'by', 'can', 'cannot', 'could', 'did', 'do', 'does', 'doing', 'down', 'during', 'each',

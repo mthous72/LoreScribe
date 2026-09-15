@@ -1,7 +1,7 @@
 import type { SqlDriver } from '../db/driver';
 import { deviceId, uuidv7 } from './ids';
 import { codexFtsStatements } from '../index/codexIndex';
-import type { FactForVisibility } from '../domain/factVisibility';
+import { isKnowing, type FactForVisibility } from '../domain/factVisibility';
 
 /**
  * Facts — the temporal record of what is true, when it became true, and when
@@ -128,10 +128,8 @@ export class FactsRepository {
       const rows2 = knowledge.get(fact.id);
       if (rows2?.length) {
         fact.knownFrom = Object.fromEntries(rows2
-          // `believes_false` and `denies` are not knowledge. Counting them
-          // would let the spoiler rule reveal a fact to a character who has
-          // been lied to about it.
-          .filter((k) => k.belief === 'knows' || k.belief === 'suspects')
+          // The one statement of which beliefs count lives with the rule.
+          .filter((k) => isKnowing(k.belief))
           .map((k) => [k.entityId, k.knownFromRank]));
       }
     }
