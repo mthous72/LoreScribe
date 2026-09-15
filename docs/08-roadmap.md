@@ -179,10 +179,12 @@ shapeless output this project exists to beat ([D29](10-decisions.md)).
     manually-triggered use.
   - Everything lands as proposals, reviewed once, same as any other extraction —
     D14 applies: the bible itself never enters this public repository.
-- `ProviderAdapter` + OpenRouter adapter + credential storage. The key lives in
-  `provider_account` with the UI saying plainly that it is unencrypted on this
-  device — consistent with [D12](10-decisions.md), and already excluded from the
-  archive export, so it never travels in a file you hand to someone.
+- `ProviderAdapter` + OpenRouter adapter + credential storage. The key is sealed
+  with a non-extractable device key in IndexedDB and `provider_account` holds only
+  a handle ([D30](10-decisions.md)); the row is already excluded from the archive
+  export, so the key never travels in a file you hand to someone, and the UI says
+  plainly what the device key does and does not protect against. **Done**, less
+  the providers screen.
 - **The gap screen, and gap-fill as the third proposal lane.** `findGaps` has
   been built and tested since Phase 0b with no caller at all; this is its
   consumer. Each gap gets its own small, focused request rather than one that
