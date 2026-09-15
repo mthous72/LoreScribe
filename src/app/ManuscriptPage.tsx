@@ -6,6 +6,7 @@ import type { OutlineGroup } from '../data/manuscriptRepository';
 import { SceneEditor } from '../editor/SceneEditor';
 import { SceneCast } from './SceneCast';
 import { SceneBrief } from './SceneBrief';
+import { SceneDraft } from './SceneDraft';
 import { SceneDetails } from './SceneDetails';
 import { SceneBeats } from './SceneBeats';
 import { SceneVersions } from './SceneVersions';
@@ -339,6 +340,14 @@ export function ManuscriptPage() {
               projectId={projectId}
               sceneId={openScene.id}
               bookId={bookId}
+            />
+            <SceneDraft
+              key={`draft:${openScene.id}`}
+              projectId={projectId}
+              sceneId={openScene.id}
+              // The draft was appended in the database; the editor owns the
+              // document in memory and has to reload, as after a restore.
+              onAccepted={() => { setContentToken((n) => n + 1); reload(); }}
             />
             <SceneCast projectId={projectId} sceneId={openScene.id} />
             <SceneBrief

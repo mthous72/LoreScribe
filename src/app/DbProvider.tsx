@@ -14,6 +14,8 @@ import { PlanRepository } from '../data/planRepository';
 import { BriefRepository } from '../data/briefRepository';
 import { ProviderRepository } from '../data/providerRepository';
 import { LawsRepository } from '../data/lawsRepository';
+import { RunsRepository } from '../data/runsRepository';
+import { Drafter } from '../ai/draft';
 import {
   EncryptedCredentialStore, IndexedDbVault, MemoryVault, type CredentialStore,
 } from '../ai/credentials';
@@ -42,6 +44,8 @@ interface Ready {
   brief: BriefRepository;
   providers: ProviderRepository;
   laws: LawsRepository;
+  runs: RunsRepository;
+  drafter: Drafter;
   /** Where the API key actually lives — D30. Never the database. */
   credentials: CredentialStore;
   diagnostics: Diagnostics;
@@ -202,6 +206,14 @@ export function DbProvider({ children }: { children: ReactNode }) {
         const codex = new CodexRepository(driver);
         const facts = new FactsRepository(driver);
         const plan = new PlanRepository(driver);
+        const versions = new VersionsRepository(driver, manuscript);
+        const brief = new BriefRepository(driver);
+        const providers = new ProviderRepository(driver);
+        const runs = new RunsRepository(driver);
+        // In memory when the browser refuses IndexedDB: the key then lasts
+        // the session and the screen says so by asking for it again.
+        const credentials = new EncryptedCredentialStore(
+          typeof indexedDB === 'undefined' ? new MemoryVault() : new IndexedDbVault());
         const storage = await requestPersistence();
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
@@ -212,17 +224,16 @@ export function DbProvider({ children }: { children: ReactNode }) {
           codex,
           search: new SearchRepository(driver),
           facts,
-          versions: new VersionsRepository(driver, manuscript),
+          versions,
           imports: new ImportRepository(driver, codex, facts, manuscript, plan),
           exports: new ExportRepository(driver),
           plan,
-          brief: new BriefRepository(driver),
-          providers: new ProviderRepository(driver),
+          brief,
+          providers,
           laws: new LawsRepository(driver),
-          // In memory when the browser refuses IndexedDB: the key then lasts
-          // the session and the screen says so by asking for it again.
-          credentials: new EncryptedCredentialStore(
-            typeof indexedDB === 'undefined' ? new MemoryVault() : new IndexedDbVault()),
+          runs,
+          credentials,
+          drafter: new Drafter({ brief, plan, runs, providers, credentials, manuscript, versions }),
           diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {
