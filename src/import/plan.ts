@@ -1,4 +1,5 @@
 import { fieldKey, walk, type SourceDoc, type SourceField, type SourceNode } from './source';
+import { isSectionHeading, ruleItems } from './outline';
 
 /**
  * Where each piece of a document should go — proposed, never decided.
@@ -28,7 +29,13 @@ export type Destination =
   | { kind: 'note' }
   | { kind: 'scene' }
   /** The node's table is a fact-by-character grid: rows facts, columns who knows. */
-  | { kind: 'knowledge'; factColumn: number };
+  | { kind: 'knowledge'; factColumn: number }
+  /** One law per bullet or paragraph under the node. */
+  | { kind: 'law'; category: LawCategory }
+  /** Acts, planned scenes with their summaries, and beats — the book's plan. */
+  | { kind: 'plan' };
+
+export type LawCategory = 'style' | 'canon' | 'content';
 
 export interface Suggestion {
   docPath: string;
@@ -76,6 +83,11 @@ const PATH_TYPES: [RegExp, string][] = [
 
 const SCENE_PATHS = /scene|chapter|manuscript|draft|prose/iu;
 const KNOWLEDGE_HEADER = /fact|know|secret|reveal/iu;
+/** A file, or a heading, that says it holds rules. */
+const LAW_PATHS = /\blaws?\b|\brules?\b|house.?style|style.?guide|\bstyle\b|\bcanon\b/iu;
+const STYLE_PATHS = /style|house/iu;
+/** A file that says it holds the plan. Never a scene file: those hold prose. */
+const PLAN_PATHS = /outline|\bplan\b|beat.?sheet|synopsis|structure/iu;
 
 function typeFromPath(path: string, types: Set<string>): string | null {
   for (const [pattern, key] of PATH_TYPES) {
@@ -133,7 +145,7 @@ export function suggestForDocument(doc: SourceDoc, context: SuggestContext): Sug
     // offered separately, and above all must not be listed as skipped, which
     // would tell the writer their template fields were being dropped.
     if (destination.kind === 'entity' || destination.kind === 'note'
-      || destination.kind === 'scene') {
+      || destination.kind === 'scene' || destination.kind === 'law' || destination.kind === 'plan') {
       for (const { node: inner } of walk(node)) claimed.add(inner.id);
     }
     const match = node.heading ? context.existing.get(nameKey(node.heading)) : undefined;
@@ -160,6 +172,32 @@ export function suggestForDocument(doc: SourceDoc, context: SuggestContext): Sug
 
   const typeKey = typeFromPath(doc.path, context.types);
   const subject = documentSubject(doc.root);
+
+  // Rules and the plan, by what the file calls itself. Checked before the
+  // entity types so `reference/laws.md` is never mistaken for a list of things
+  // — and never when the folder already says the file holds people or prose.
+  const saysLaws = !typeKey && !SCENE_PATHS.test(doc.path)
+    && (LAW_PATHS.test(doc.path) || LAW_PATHS.test(subject.heading ?? ''));
+  const saysPlan = !typeKey && !SCENE_PATHS.test(doc.path) && PLAN_PATHS.test(doc.path);
+  const sections = [...walk(subject)]
+    .filter(({ node }) => node !== subject && isSectionHeading(node.heading));
+
+  if (saysPlan && sections.length >= 2) {
+    propose(subject, { kind: 'plan' },
+      `${sections.length} numbered sections under "${doc.path}", read as planned scenes with `
+      + 'their beats, and the headings above them as acts');
+  } else if (saysLaws) {
+    const text = [...walk(subject)].map(({ node }) => node.text).join('\n\n');
+    const items = ruleItems(text);
+    if (items.length >= 1) {
+      const category: LawCategory =
+        STYLE_PATHS.test(`${doc.path} ${subject.heading ?? ''}`) ? 'style' : 'canon';
+      const per = items.length > 1 && /^\s*[-*•]\s/mu.test(text) ? 'bullet' : 'paragraph';
+      propose(subject, { kind: 'law', category },
+        `"${doc.path}" says it holds rules: ${items.length} of them, one per ${per}, `
+        + `offered as ${category} laws`);
+    }
+  }
 
   if (typeKey) {
     const siblings = repeatedLevel(subject);

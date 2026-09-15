@@ -3,8 +3,10 @@ import { deviceId, uuidv7 } from './ids';
 import type { CodexRepository } from './codexRepository';
 import type { FactsRepository, Belief } from './factsRepository';
 import type { ManuscriptRepository } from './manuscriptRepository';
+import type { PlanRepository } from './planRepository';
 import { subtreeText, walk, type SourceDoc, type SourceNode } from '../import/source';
 import { absorbedFields, defaultFieldTarget, nameKey, type Destination } from '../import/plan';
+import { firstClause, readOutline, ruleItems, splitName, type OutlinePart } from '../import/outline';
 
 /**
  * Staging an import, applying it, and taking it back.
@@ -87,6 +89,13 @@ interface KnowledgePayload {
 }
 interface NotePayload { title: string; body: string }
 interface ScenePayload { title: string; contentText: string; chapterId?: string | null }
+interface LawPayload { category: string; severity: string; title: string; ruleText: string; order: number }
+interface PlanPayload {
+  arcName: string;
+  parts: OutlinePart[];
+  /** Written at apply time, so undo knows what to take back. */
+  created?: { arcId: string; partIds: string[]; chapterIds: string[]; sceneIds: string[] };
+}
 
 /**
  * What a cell in a who-knows-what table means.
@@ -121,6 +130,7 @@ export class ImportRepository {
     private readonly codex: CodexRepository,
     private readonly facts: FactsRepository,
     private readonly manuscript: ManuscriptRepository,
+    private readonly plan: PlanRepository,
   ) {}
 
   /* ---------------------------------------------------------------- staging */
@@ -153,12 +163,15 @@ export class ImportRepository {
         if (!node || destination.kind === 'skip') continue;
 
         if (destination.kind === 'entity') {
-          const name = (node.heading ?? doc.path).trim();
+          // `Wren, dock clerk, male` is a name and a line about it in one
+          // heading. The name is the part before the separator; the rest is the
+          // summary, unless a template field already supplies one.
+          const { name, rest } = splitName(node.heading ?? doc.path);
           const fields = absorbedFields(node);
           const attributes: Record<string, string> = {};
           const payload: EntityPayload = {
             name, typeKey: destination.typeKey,
-            summary: null, description: subtreeText(node) || null, attributes,
+            summary: rest, description: subtreeText(node) || null, attributes,
           };
           for (const f of fields) {
             const target = defaultFieldTarget(f.key);
@@ -177,6 +190,20 @@ export class ImportRepository {
           add('scene', {
             title: node.heading ?? doc.path, contentText: subtreeText(node),
           } satisfies ScenePayload, `from ${doc.path}`);
+        } else if (destination.kind === 'law') {
+          const text = [...walk(node)].map(({ node: n }) => n.text).join('\n\n');
+          ruleItems(text).forEach((item, order) => {
+            add('law', {
+              category: destination.category, severity: 'must',
+              title: firstClause(item), ruleText: item, order,
+            } satisfies LawPayload, `from ${doc.path}`);
+          });
+        } else if (destination.kind === 'plan') {
+          const outline = readOutline(node, node.heading ?? doc.path);
+          if (outline.parts.length > 0) {
+            add('plan', { arcName: outline.title, parts: outline.parts } satisfies PlanPayload,
+              `from ${doc.path}`);
+          }
         } else {
           for (const table of node.tables) {
             const names = table.columns.slice(1);
@@ -298,7 +325,7 @@ export class ImportRepository {
   async apply(projectId: string, runId: string): Promise<ApplyResult> {
     const proposals = (await this.listProposals(runId))
       .filter((p) => p.status === 'accepted');
-    const order = ['entity', 'entity_alias', 'fact', 'fact_knowledge', 'note', 'scene'];
+    const order = ['entity', 'entity_alias', 'fact', 'fact_knowledge', 'note', 'scene', 'law', 'plan'];
     proposals.sort((a, b) => order.indexOf(a.targetTable) - order.indexOf(b.targetTable));
 
     const byName = await this.#entityIndex(projectId);
@@ -461,6 +488,62 @@ export class ImportRepository {
       return scene.id;
     }
 
+    if (p.targetTable === 'law') {
+      const payload = p.payload as unknown as LawPayload;
+      const now = Date.now();
+      const id = uuidv7(now);
+      await this.driver.batch([
+        {
+          sql: `INSERT INTO law (id, project_id, scope_type, scope_id, category, severity, title,
+                                 rule_text, check_mode, is_system, active, sort_key, created_at, updated_at)
+                VALUES (?, ?, 'project', NULL, ?, ?, ?, ?, 'prompt', 0, 1, ?, ?, ?)`,
+          params: [id, projectId, payload.category, payload.severity, payload.title, payload.ruleText,
+            String(payload.order).padStart(4, '0'), now, now],
+        },
+        this.#op(id, 'insert', payload, now),
+      ], true);
+      return id;
+    }
+
+    if (p.targetTable === 'plan') {
+      const payload = p.payload as unknown as PlanPayload;
+      const books = await this.manuscript.listBooks(projectId);
+      const book = books[0] ?? await this.manuscript.createBook(projectId, 'Book One');
+      const arc = await this.plan.createArc(book.id, payload.arcName);
+      const created = {
+        arcId: arc.id, partIds: [] as string[], chapterIds: [] as string[], sceneIds: [] as string[],
+      };
+      for (const part of payload.parts) {
+        const partId = part.title === null
+          ? null
+          : (await this.manuscript.createPart(book.id, part.title)).id;
+        if (partId) created.partIds.push(partId);
+        for (const section of part.sections) {
+          const chapter = await this.manuscript.createChapter(book.id, section.title, { partId });
+          created.chapterIds.push(chapter.id);
+          if (section.number !== null) {
+            await this.driver.query(
+              'UPDATE chapter SET number = ? WHERE id = ?', [section.number, chapter.id], 'run');
+          }
+          const scene = await this.manuscript.createScene(chapter.id, section.title);
+          created.sceneIds.push(scene.id);
+          await this.manuscript.updateScene(scene.id, { summary: section.summary, status: section.status });
+          for (const b of section.beats) {
+            const beat = await this.plan.createBeat(arc.id, b.title);
+            // A summary that only repeats the title with its full stop is noise.
+            if (b.summary.replace(/[.!?]+$/u, '') !== b.title) {
+              await this.plan.updateBeat(beat.id, { summary: b.summary });
+            }
+            await this.plan.linkBeat(beat.id, scene.id, 'develop');
+          }
+        }
+      }
+      // Kept on the proposal, not derived later: by undo time the rows may
+      // have been renamed or moved, and the ids are the only stable handle.
+      await this.#remember(p.id, undefined, { created });
+      return arc.id;
+    }
+
     throw new Error(`nothing knows how to apply a ${p.targetTable}`);
   }
 
@@ -490,17 +573,39 @@ export class ImportRepository {
       ], true);
     } else if (p.targetTable === 'scene') {
       await this.manuscript.removeScene(id);
+    } else if (p.targetTable === 'law') {
+      const now = Date.now();
+      await this.driver.batch([
+        { sql: 'UPDATE law SET deleted_at = ?, updated_at = ? WHERE id = ?', params: [now, now, id] },
+        this.#op(id, 'delete', null, now),
+      ], true);
+    } else if (p.targetTable === 'plan') {
+      const created = (p.payload as unknown as PlanPayload).created;
+      if (!created) return;
+      // The arc takes its beats with it; scenes before chapters before parts,
+      // the reverse of how they were made.
+      await this.plan.removeArc(created.arcId);
+      for (const sceneId of created.sceneIds) await this.manuscript.removeScene(sceneId);
+      for (const chapterId of created.chapterIds) await this.manuscript.removeChapter(chapterId);
+      for (const partId of created.partIds) await this.manuscript.removePart(partId);
     }
   }
 
-  /** Keep what a row looked like before an update, so undo has something to restore. */
-  async #remember(proposalId: string, before: unknown): Promise<void> {
-    if (!before) return;
+  /**
+   * Keep what a row looked like before an update, so undo has something to
+   * restore — or, for a proposal that made many rows, which rows it made.
+   */
+  async #remember(
+    proposalId: string, before: unknown, extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    if (!before && Object.keys(extra).length === 0) return;
     const rows = await this.#all('SELECT payload FROM proposal WHERE id = ?', [proposalId]);
     const payload = JSON.parse(String(rows[0]?.[0] ?? '{}')) as Record<string, unknown>;
-    payload.previous = before;
+    if (before) payload.previous = before;
+    Object.assign(payload, extra);
     await this.driver.query(
-      "UPDATE proposal SET payload = ?, op = 'update' WHERE id = ?",
+      before ? "UPDATE proposal SET payload = ?, op = 'update' WHERE id = ?"
+        : 'UPDATE proposal SET payload = ? WHERE id = ?',
       [JSON.stringify(payload), proposalId], 'run');
   }
 
