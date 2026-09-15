@@ -212,6 +212,9 @@ export function ManuscriptPage() {
         <Link to={`/project/${projectId}/plan`} className="underline opacity-70">
           Plan — arcs, beats, and the scenes that carry them →
         </Link>
+        <Link to={`/project/${projectId}/laws`} className="underline opacity-70">
+          Laws — the rules the model follows →
+        </Link>
         <Link to={`/project/${projectId}/search`} className="underline opacity-70">
           Search →
         </Link>

@@ -13,6 +13,7 @@ import { ExportRepository } from '../data/exportRepository';
 import { PlanRepository } from '../data/planRepository';
 import { BriefRepository } from '../data/briefRepository';
 import { ProviderRepository } from '../data/providerRepository';
+import { LawsRepository } from '../data/lawsRepository';
 import {
   EncryptedCredentialStore, IndexedDbVault, MemoryVault, type CredentialStore,
 } from '../ai/credentials';
@@ -40,6 +41,7 @@ interface Ready {
   plan: PlanRepository;
   brief: BriefRepository;
   providers: ProviderRepository;
+  laws: LawsRepository;
   /** Where the API key actually lives — D30. Never the database. */
   credentials: CredentialStore;
   diagnostics: Diagnostics;
@@ -216,6 +218,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           plan,
           brief: new BriefRepository(driver),
           providers: new ProviderRepository(driver),
+          laws: new LawsRepository(driver),
           // In memory when the browser refuses IndexedDB: the key then lasts
           // the session and the screen says so by asking for it again.
           credentials: new EncryptedCredentialStore(
