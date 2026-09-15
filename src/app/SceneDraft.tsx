@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useDb } from './DbProvider';
-import { NoDraftModelError, type DraftEvent } from '../ai/draft';
+import { NoDraftModelError, SpendCapError, type DraftEvent } from '../ai/draft';
 import { explainProviderError } from '../ai/explain';
 import type { SceneBeat } from '../data/planRepository';
+import { raisedStop, usd, type SpendMeter } from '../domain/spend';
 
 /**
  * Draft a beat, from inside the scene.
@@ -17,6 +18,12 @@ import type { SceneBeat } from '../data/planRepository';
  * What it costs is said after, not guessed before: the provider's own token
  * counts against the profile's prices. The window the brief was fitted to is
  * the model's, from the profile — the first time the budget has a real number.
+ *
+ * Under the controls, what today has cost so far against the project's caps
+ * ([D17](../../docs/10-decisions.md)). Past the warning the line says so and
+ * drafting continues; at the stop the drafter refuses before it sends
+ * anything, and the refusal comes with the raise, one tap, because the stop
+ * is a guard against a loop and not a judgement about the work.
  */
 
 const LENGTHS = [
@@ -40,7 +47,9 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
   const [done, setDone] = useState<Done | null>(null);
   const [model, setModel] = useState<{ model: string; window: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ text: string; needsModel?: boolean } | null>(null);
+  const [note, setNote] = useState<{ text: string; needsModel?: boolean; stopped?: SpendMeter } | null>(null);
+  const [meter, setMeter] = useState<SpendMeter | null>(null);
+  const [meterToken, setMeterToken] = useState(0);
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -52,6 +61,16 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
     })();
     return () => { cancelled = true; };
   }, [db, sceneId]);
+
+  useEffect(() => {
+    if (db.state !== 'ready') return;
+    let cancelled = false;
+    void (async () => {
+      const now = await db.spend.meter(projectId);
+      if (!cancelled) setMeter(now);
+    })();
+    return () => { cancelled = true; };
+  }, [db, projectId, meterToken]);
 
   // A draft in flight belongs to the scene it was asked for.
   useEffect(() => () => abort.current?.abort(), []);
@@ -76,12 +95,27 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
       }
     } catch (e) {
       if (e instanceof NoDraftModelError) setNote({ text: e.message, needsModel: true });
+      else if (e instanceof SpendCapError) setNote({ text: e.message, stopped: e.meter });
       else setNote({ text: explainProviderError(e) });
     } finally {
       setBusy(false);
       abort.current = null;
+      setMeterToken((t) => t + 1);
     }
   }, [db, projectId, sceneId, beatId, words]);
+
+  const raise = useCallback(async (from: SpendMeter) => {
+    if (db.state !== 'ready') return;
+    const stopUsd = raisedStop(from.caps.stopUsd);
+    try {
+      await db.spend.setCaps(projectId, { warnUsd: Math.min(from.caps.warnUsd, stopUsd), stopUsd });
+      setNote({ text: `The stop for this project is now ${usd(stopUsd)} a day. Draft again when you are ready.` });
+    } catch (e) {
+      setNote({ text: (e as Error).message ?? String(e) });
+    } finally {
+      setMeterToken((t) => t + 1);
+    }
+  }, [db, projectId]);
 
   const accept = useCallback(async () => {
     if (db.state !== 'ready' || !done) return;
@@ -148,6 +182,20 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
           )}
       </div>
 
+      {meter && (
+        <p className="mt-1.5 text-xs opacity-60" data-testid="spend-meter" data-level={meter.level}>
+          {usd(meter.todayUsd)} spent today on this project
+          {meter.level === 'stop' ? ` — at the ${usd(meter.caps.stopUsd)} stop`
+            : meter.level === 'warn' ? ` — past the ${usd(meter.caps.warnUsd)} warning, stops at ${usd(meter.caps.stopUsd)}`
+              : ` · warns at ${usd(meter.caps.warnUsd)}, stops at ${usd(meter.caps.stopUsd)}`}
+          {meter.unpricedRuns > 0 && (
+            <> · {meter.unpricedRuns} {meter.unpricedRuns === 1 ? 'run' : 'runs'} had no price and {meter.unpricedRuns === 1 ? 'is' : 'are'} not counted</>
+          )}
+          {' '}
+          <Link to={`/project/${projectId}/providers#spend`} className="underline">change the caps</Link>
+        </p>
+      )}
+
       {note && (
         <p aria-live="polite" role="status" className="mt-2 text-xs opacity-80">
           {note.text}
@@ -155,6 +203,16 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
             <>
               {' '}
               <Link to={`/project/${projectId}/providers`} className="underline">Providers →</Link>
+            </>
+          )}
+          {note.stopped && (
+            <>
+              {' '}
+              <button
+                onClick={() => void raise(note.stopped!)}
+                className="rounded border border-current/20 px-2 py-0.5 text-xs font-medium">
+                Raise the stop to {usd(raisedStop(note.stopped.caps.stopUsd))} a day
+              </button>
             </>
           )}
         </p>

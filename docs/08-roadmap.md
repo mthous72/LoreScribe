@@ -199,6 +199,11 @@ shapeless output this project exists to beat ([D29](10-decisions.md)).
   Phase 3's span-level `origin` marks later record which beat produced which
   span. Streaming; cancellation.
 - `ai_run` recording with the stored brief.
+- Spend caps ([D17](10-decisions.md)): per-project, per-local-day warning and
+  stop in `project.settings_json`; the drafter refuses at the stop before it
+  compiles or sends anything and records a `blocked` run; the meter sits under
+  the draft controls with the raise one tap away, and the Providers page sets
+  both numbers in full. *(Built.)*
 - Rolling summaries and the continuity ladder.
 - Lore Digest compiler for structural generation.
 - Reasoning-allowance learning; sanitiser applied to every generated span.

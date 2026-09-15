@@ -34,6 +34,7 @@ export interface AiRun {
   status: RunStatus | null;
   servedBy: string | null;
   errorText: string | null;
+  blockReason: string | null;
   accepted: boolean;
   createdAt: number;
 }
@@ -46,6 +47,15 @@ export interface RunStart {
   params: Record<string, unknown>;
   briefJson: string;
   promptRendered: string;
+}
+
+/** A run the app refused to make. Nothing was sent; the row is the record that it was asked for. */
+export interface RunBlock {
+  sceneId: string | null;
+  purpose: string;
+  provider: string | null;
+  model: string | null;
+  reason: string;
 }
 
 export interface RunFinish {
@@ -62,7 +72,7 @@ export interface RunFinish {
 }
 
 const COLUMNS = `id, project_id, scene_id, purpose, provider, model, output_text, tokens_in, tokens_out,
-  tokens_reasoning, cost_usd, latency_ms, status, served_by, error_text, accepted, created_at`;
+  tokens_reasoning, cost_usd, latency_ms, status, served_by, error_text, accepted, created_at, block_reason`;
 
 const toRun = (r: unknown[]): AiRun => ({
   id: r[0] as string, projectId: r[1] as string, sceneId: r[2] as string | null,
@@ -72,7 +82,7 @@ const toRun = (r: unknown[]): AiRun => ({
   tokensReasoning: r[9] === null ? null : Number(r[9]), costUsd: r[10] === null ? null : Number(r[10]),
   latencyMs: r[11] === null ? null : Number(r[11]), status: r[12] as RunStatus | null,
   servedBy: r[13] as string | null, errorText: r[14] as string | null,
-  accepted: Number(r[15]) !== 0, createdAt: Number(r[16]),
+  accepted: Number(r[15]) !== 0, createdAt: Number(r[16]), blockReason: r[17] as string | null,
 });
 
 export class RunsRepository {
@@ -87,6 +97,21 @@ export class RunsRepository {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)`,
       [id, projectId, run.sceneId, run.purpose, run.provider, run.model, JSON.stringify(run.params),
         run.briefJson, run.promptRendered, now], 'run');
+    return id;
+  }
+
+  /**
+   * Record a run stopped BEFORE the call — the schema's `blocked`. Cost is
+   * null, so it never counts toward the spend it was blocked for.
+   */
+  async block(projectId: string, run: RunBlock): Promise<string> {
+    const now = Date.now();
+    const id = uuidv7(now);
+    await this.driver.query(
+      `INSERT INTO ai_run (id, project_id, scene_id, purpose, provider, model, status, block_reason, latency_ms,
+                           created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'blocked', ?, 0, ?)`,
+      [id, projectId, run.sceneId, run.purpose, run.provider, run.model, run.reason, now], 'run');
     return id;
   }
 
@@ -122,6 +147,19 @@ export class RunsRepository {
   async spentSince(projectId: string, since: number): Promise<number> {
     const { rows } = await this.driver.query(
       'SELECT COALESCE(SUM(cost_usd), 0) FROM ai_run WHERE project_id = ? AND created_at >= ?',
+      [projectId, since], 'all');
+    return Number((rows as unknown[][])[0]?.[0] ?? 0);
+  }
+
+  /**
+   * Runs since a moment that used tokens but carry no cost, because the profile
+   * had no prices. They are missing from `spentSince`, and the meter says so
+   * rather than showing a sum that looks complete.
+   */
+  async unpricedSince(projectId: string, since: number): Promise<number> {
+    const { rows } = await this.driver.query(
+      `SELECT COUNT(*) FROM ai_run WHERE project_id = ? AND created_at >= ? AND cost_usd IS NULL
+         AND (tokens_in IS NOT NULL OR tokens_out IS NOT NULL)`,
       [projectId, since], 'all');
     return Number((rows as unknown[][])[0]?.[0] ?? 0);
   }

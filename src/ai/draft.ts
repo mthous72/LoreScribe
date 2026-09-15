@@ -4,6 +4,8 @@ import type { RunsRepository, RunStatus } from '../data/runsRepository';
 import type { ModelProfile, ProviderAccount, ProviderRepository } from '../data/providerRepository';
 import type { ManuscriptRepository } from '../data/manuscriptRepository';
 import type { VersionsRepository } from '../data/versionsRepository';
+import type { SpendRepository } from '../data/spendRepository';
+import { usd, type SpendMeter } from '../domain/spend';
 import type { CredentialStore } from './credentials';
 import { OpenRouterAdapter } from './openrouter';
 import { ProviderError, type ChatMessage, type ProviderAdapter } from './provider';
@@ -20,6 +22,11 @@ import { countWords } from '../text/words';
  *
  * The shape, in order:
  *
+ * 0. **Read the spend meter** ([D17](../../docs/10-decisions.md)). Past the
+ *    day's stop, nothing is compiled and nothing is sent: a `blocked` run is
+ *    recorded with the reason and `SpendCapError` carries the meter to the
+ *    panel, where the stop is one tap from raised. This comes before the model
+ *    lookup because it is the one check that holds whatever else is missing.
  * 1. **Compile the brief** for this scene at the draft model's window, so the
  *    budget is the real one. The brief is the system prompt, verbatim; the
  *    beat and the length are the user turn. Templates as rows
@@ -76,6 +83,7 @@ export interface DrafterDeps {
   credentials: CredentialStore;
   manuscript: ManuscriptRepository;
   versions: VersionsRepository;
+  spend: SpendRepository;
   /** Injected for tests; the default builds the real adapter for the account. */
   adapterFor?: (account: ProviderAccount, apiKey: string) => ProviderAdapter;
 }
@@ -116,6 +124,15 @@ export function renderDraftPrompt(
   return lines.join('\n');
 }
 
+/** Today's spend has reached the project's stop. The meter says by how much; the panel offers the raise. */
+export class SpendCapError extends Error {
+  constructor(readonly meter: SpendMeter) {
+    super(`${usd(meter.todayUsd)} spent today on this project has reached the ${usd(meter.caps.stopUsd)} daily stop, `
+      + 'so nothing was sent.');
+    this.name = 'SpendCapError';
+  }
+}
+
 export class Drafter {
   constructor(private readonly deps: DrafterDeps) {}
 
@@ -130,6 +147,14 @@ export class Drafter {
   }
 
   async *draft(req: DraftRequest, signal: AbortSignal): AsyncIterable<DraftEvent> {
+    const meter = await this.deps.spend.meter(req.projectId);
+    if (meter.level === 'stop') {
+      const error = new SpendCapError(meter);
+      await this.deps.runs.block(req.projectId, {
+        sceneId: req.sceneId, purpose: PURPOSE, provider: null, model: null, reason: error.message,
+      });
+      throw error;
+    }
     const { profile, account } = await this.draftModel(req.projectId);
     if (!account.credentialRef) throw new Error(`No key is saved for ${account.label} on this device.`);
     const apiKey = await this.deps.credentials.load(account.credentialRef);

@@ -6,8 +6,11 @@ import { RunsRepository } from '../data/runsRepository';
 import { ProviderRepository } from '../data/providerRepository';
 import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { VersionsRepository } from '../data/versionsRepository';
+import { SpendRepository } from '../data/spendRepository';
 import { EncryptedCredentialStore, MemoryVault } from './credentials';
-import { Drafter, NoDraftModelError, appendParagraphs, renderDraftPrompt, type DraftEvent } from './draft';
+import {
+  Drafter, NoDraftModelError, SpendCapError, appendParagraphs, renderDraftPrompt, type DraftEvent,
+} from './draft';
 import { ProviderError, type ChatDelta, type ChatRequest, type ProviderAdapter } from './provider';
 
 /**
@@ -30,6 +33,7 @@ let providers: ProviderRepository;
 let runs: RunsRepository;
 let versions: VersionsRepository;
 let plan: PlanRepository;
+let spend: SpendRepository;
 let sceneId: string;
 let beatId: string;
 let profileId: string;
@@ -76,6 +80,7 @@ beforeEach(async () => {
   runs = new RunsRepository(driver);
   versions = new VersionsRepository(driver, manuscript);
   plan = new PlanRepository(driver);
+  spend = new SpendRepository(driver, runs);
   await driver.query('INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, 1, 1)', [P, 'P'], 'run');
   const book = await manuscript.createBook(P, 'Book');
   const chapter = await manuscript.createChapter(book.id, 'One');
@@ -101,7 +106,7 @@ async function drafter(adapter: ProviderAdapter, withKey = true) {
   const [account] = await providers.listAccounts();
   if (withKey) await credentials.save(account!.id, 'sk-or-v1-fake');
   return new Drafter({
-    brief: new BriefRepository(driver), plan, runs, providers, credentials, manuscript, versions,
+    brief: new BriefRepository(driver), plan, runs, providers, credentials, manuscript, versions, spend,
     adapterFor: () => adapter,
   });
 }
@@ -151,6 +156,59 @@ describe('the request', () => {
   it('refuses without a saved key', async () => {
     const d = await drafter(fake([]).adapter, false);
     await expect(collect(d, null)).rejects.toThrow(/No key is saved/);
+  });
+});
+
+describe('the spend cap', () => {
+  /** A priced run earlier today. */
+  async function spent(costUsd: number) {
+    const id = await runs.start(P, {
+      sceneId, purpose: 'draft_beat', provider: 'openrouter', model: 'm', params: {}, briefJson: '{}', promptRendered: '',
+    });
+    await runs.finish(id, {
+      outputText: 'x', tokensIn: 1, tokensOut: 1, tokensReasoning: 0, costUsd, latencyMs: 1, status: 'ok', servedBy: null,
+    });
+  }
+
+  it('refuses before the call once today has reached the stop, and records the refusal', async () => {
+    await spent(12);
+    await spent(8);
+    const { adapter, asked } = fake([text('never'), ...finished()]);
+    const d = await drafter(adapter);
+    const failure = await collect(d, beatId).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(SpendCapError);
+    expect((failure as SpendCapError).meter).toMatchObject({ todayUsd: 20, level: 'stop' });
+    expect((failure as Error).message).toContain('$20.00 spent today');
+    expect((failure as Error).message).toContain('$20.00 daily stop');
+    expect(asked).toHaveLength(0);
+
+    const [blocked] = await runs.list(P, sceneId);
+    expect(blocked).toMatchObject({ status: 'blocked', costUsd: null, purpose: 'draft_beat' });
+    expect(blocked?.blockReason).toContain('daily stop');
+    // The refusal is not itself spend: the meter reads the same after it.
+    expect((await spend.meter(P)).todayUsd).toBeCloseTo(20);
+  });
+
+  it('comes before the model lookup, so a project with no model is still told about its spend', async () => {
+    await driver.query('DELETE FROM model_profile', [], 'run');
+    await spent(25);
+    await expect(collect(await drafter(fake([]).adapter), null)).rejects.toBeInstanceOf(SpendCapError);
+  });
+
+  it('continues past the warning, and honours a raised stop', async () => {
+    await spent(19.99);
+    const { adapter, asked } = fake([text('Still writing.'), ...finished()]);
+    const d = await drafter(adapter);
+    expect((await spend.meter(P)).level).toBe('warn');
+    await collect(d, beatId);
+    expect(asked).toHaveLength(1);
+
+    // That run crossed the line; the next is refused until the stop moves.
+    await spent(0.5);
+    await expect(collect(d, beatId)).rejects.toBeInstanceOf(SpendCapError);
+    await spend.setCaps(P, { warnUsd: 5, stopUsd: 40 });
+    await collect(d, beatId);
+    expect(asked).toHaveLength(2);
   });
 });
 

@@ -15,6 +15,7 @@ import { BriefRepository } from '../data/briefRepository';
 import { ProviderRepository } from '../data/providerRepository';
 import { LawsRepository } from '../data/lawsRepository';
 import { RunsRepository } from '../data/runsRepository';
+import { SpendRepository } from '../data/spendRepository';
 import { Drafter } from '../ai/draft';
 import {
   EncryptedCredentialStore, IndexedDbVault, MemoryVault, type CredentialStore,
@@ -45,6 +46,8 @@ interface Ready {
   providers: ProviderRepository;
   laws: LawsRepository;
   runs: RunsRepository;
+  /** Spend caps and today's meter — D17. */
+  spend: SpendRepository;
   drafter: Drafter;
   /** Where the API key actually lives — D30. Never the database. */
   credentials: CredentialStore;
@@ -210,6 +213,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
         const brief = new BriefRepository(driver);
         const providers = new ProviderRepository(driver);
         const runs = new RunsRepository(driver);
+        const spend = new SpendRepository(driver, runs);
         // In memory when the browser refuses IndexedDB: the key then lasts
         // the session and the screen says so by asking for it again.
         const credentials = new EncryptedCredentialStore(
@@ -232,8 +236,9 @@ export function DbProvider({ children }: { children: ReactNode }) {
           providers,
           laws: new LawsRepository(driver),
           runs,
+          spend,
           credentials,
-          drafter: new Drafter({ brief, plan, runs, providers, credentials, manuscript, versions }),
+          drafter: new Drafter({ brief, plan, runs, providers, credentials, manuscript, versions, spend }),
           diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {
