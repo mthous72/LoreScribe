@@ -5,10 +5,12 @@ import type { ModelProfile, ProviderAccount, ProviderRepository } from '../data/
 import type { ManuscriptRepository } from '../data/manuscriptRepository';
 import type { VersionsRepository } from '../data/versionsRepository';
 import type { SpendRepository } from '../data/spendRepository';
-import { usd, type SpendMeter } from '../domain/spend';
 import type { CredentialStore } from './credentials';
-import { OpenRouterAdapter } from './openrouter';
 import { ProviderError, type ChatMessage, type ProviderAdapter } from './provider';
+import {
+  NoModelError, SpendCapError, costOf, defaultAdapter, guardSpend, resolveRole,
+} from './roles';
+import type { Verdict, Verifier } from './verify';
 import { ReasoningStripper, sanitise } from '../text/sanitise';
 import { countWords } from '../text/words';
 
@@ -41,6 +43,12 @@ import { countWords } from '../text/words';
  *    span passes through before it is stored or shown.
  * 5. **Close the run** with tokens, cost from the profile's prices, who served
  *    it, and a status; keep the worst reasoning spend seen on the profile.
+ * 6. **Verify** ([doc 04](../../docs/04-laws-engine.md) phase 2): the free
+ *    checks and the repetition guard every time, the rubric laws through the
+ *    `critique` role when one is set. The verdict follows `done` as its own
+ *    event, so the draft is on screen while the critique call runs, and a
+ *    failure in verification is reported in the verdict rather than losing
+ *    the draft.
  *
  * **Nothing lands in the scene until the writer accepts it**, and accepting
  * takes a snapshot first ([D24](../../docs/10-decisions.md)): the prose as it
@@ -73,7 +81,8 @@ export type DraftEvent =
     tokensOut: number | null;
     costUsd: number | null;
     servedBy: string | null;
-  };
+  }
+  | { kind: 'verdict'; verdict: Verdict };
 
 export interface DrafterDeps {
   brief: BriefRepository;
@@ -84,6 +93,7 @@ export interface DrafterDeps {
   manuscript: ManuscriptRepository;
   versions: VersionsRepository;
   spend: SpendRepository;
+  verifier: Verifier;
   /** Injected for tests; the default builds the real adapter for the account. */
   adapterFor?: (account: ProviderAccount, apiKey: string) => ProviderAdapter;
 }
@@ -94,12 +104,13 @@ const TOKENS_PER_WORD = 1.6;
 const PURPOSE = 'draft_beat';
 
 /** Nothing to draft with yet. The panel turns this into a link. */
-export class NoDraftModelError extends Error {
+export class NoDraftModelError extends NoModelError {
   constructor() {
-    super('No draft model is set for this project. Choose one on the Providers page.');
+    super('draft');
     this.name = 'NoDraftModelError';
   }
 }
+export { SpendCapError };
 
 /**
  * The user turn. The brief is the system prompt and says everything about the
@@ -124,37 +135,21 @@ export function renderDraftPrompt(
   return lines.join('\n');
 }
 
-/** Today's spend has reached the project's stop. The meter says by how much; the panel offers the raise. */
-export class SpendCapError extends Error {
-  constructor(readonly meter: SpendMeter) {
-    super(`${usd(meter.todayUsd)} spent today on this project has reached the ${usd(meter.caps.stopUsd)} daily stop, `
-      + 'so nothing was sent.');
-    this.name = 'SpendCapError';
-  }
-}
-
 export class Drafter {
   constructor(private readonly deps: DrafterDeps) {}
 
   /** The draft role's profile and account, or `NoDraftModelError`. */
   async draftModel(projectId: string): Promise<{ profile: ModelProfile; account: ProviderAccount }> {
-    const profile = (await this.deps.providers.listProfiles(projectId)).find((p) => p.role === 'draft');
-    if (!profile) throw new NoDraftModelError();
-    const accounts = await this.deps.providers.listAccounts();
-    const account = accounts.find((a) => a.id === profile.providerAccountId);
-    if (!account || !account.active) throw new NoDraftModelError();
-    return { profile, account };
+    try {
+      return await resolveRole(this.deps.providers, projectId, 'draft');
+    } catch (e) {
+      if (e instanceof NoModelError) throw new NoDraftModelError();
+      throw e;
+    }
   }
 
   async *draft(req: DraftRequest, signal: AbortSignal): AsyncIterable<DraftEvent> {
-    const meter = await this.deps.spend.meter(req.projectId);
-    if (meter.level === 'stop') {
-      const error = new SpendCapError(meter);
-      await this.deps.runs.block(req.projectId, {
-        sceneId: req.sceneId, purpose: PURPOSE, provider: null, model: null, reason: error.message,
-      });
-      throw error;
-    }
+    await guardSpend(this.deps, req.projectId, req.sceneId, PURPOSE);
     const { profile, account } = await this.draftModel(req.projectId);
     if (!account.credentialRef) throw new Error(`No key is saved for ${account.label} on this device.`);
     const apiKey = await this.deps.credentials.load(account.credentialRef);
@@ -223,9 +218,7 @@ export class Drafter {
     }
 
     const output = sanitise(raw, { summary: details?.summary ?? undefined });
-    const cost = usage && profile.costInPerMtok !== null && profile.costOutPerMtok !== null
-      ? (usage.tokensIn * profile.costInPerMtok + usage.tokensOut * profile.costOutPerMtok) / 1_000_000
-      : null;
+    const cost = costOf(profile, usage);
 
     await this.deps.runs.finish(runId, {
       outputText: output || null,
@@ -247,6 +240,32 @@ export class Drafter {
       tokensIn: usage?.tokensIn ?? null, tokensOut: usage?.tokensOut ?? null,
       costUsd: cost, servedBy,
     };
+
+    if (output) {
+      yield { kind: 'verdict', verdict: await this.#verdict(req, runId, output, compiled, status === 'cancelled') };
+    }
+  }
+
+  /** Verification informs acceptance and never loses the draft: a failure here is a state in the verdict. */
+  async #verdict(
+    req: DraftRequest, runId: string, output: string, compiled: SceneBriefResult, cancelled: boolean,
+  ): Promise<Verdict> {
+    const laws = compiled.laws.laws;
+    try {
+      return await this.deps.verifier.verify({
+        projectId: req.projectId, sceneId: req.sceneId, runId, text: output, laws,
+        ban: compiled.laws.bans, cancelled,
+      }, new AbortController().signal);
+    } catch (e) {
+      return {
+        findings: [], uncertain: [], repetition: [], skipped: [],
+        rubric: {
+          state: 'failed',
+          laws: laws.filter((l) => l.checkMode === 'rubric' || l.checkMode === 'prompt+rubric').length,
+          detail: (e as Error).message ?? String(e), runId: null, costUsd: null,
+        },
+      };
+    }
   }
 
   /**
@@ -271,16 +290,6 @@ export class Drafter {
     await this.deps.runs.accept(runId);
     return { words: wordCount };
   }
-}
-
-function defaultAdapter(account: ProviderAccount, apiKey: string): ProviderAdapter {
-  if (account.kind !== 'openrouter') {
-    throw new Error(`${account.kind} accounts cannot draft yet; only OpenRouter can.`);
-  }
-  return new OpenRouterAdapter({
-    apiKey, baseUrl: account.baseUrl ?? undefined,
-    referer: typeof window === 'undefined' ? undefined : window.location.origin, title: 'LoreScribe',
-  });
 }
 
 function statusOf(reason: string): RunStatus {

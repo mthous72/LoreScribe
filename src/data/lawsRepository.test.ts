@@ -82,4 +82,30 @@ describe('LawsRepository', () => {
       "SELECT op FROM op_log WHERE table_name = 'law' AND row_id = ? ORDER BY ts, rowid", [law.id], 'all')).rows;
     expect(ops.flat()).toEqual(['insert', 'update', 'delete']);
   });
+
+  it('keeps how a law is checked, and refuses a check it could not run', async () => {
+    const law = await repo.create(P, {
+      title: 'No suddenly', ruleText: 'Never write "suddenly".', category: 'style',
+      checkMode: 'regex', checkConfig: JSON.stringify({ pattern: '\\bsuddenly\\b' }),
+    });
+    expect(await repo.get(law.id)).toMatchObject({ checkMode: 'regex', checkConfig: JSON.stringify({ pattern: '\\bsuddenly\\b' }) });
+    expect((await repo.create(P, { title: 'p', ruleText: 'r', category: 'style' })).checkMode).toBe('prompt');
+
+    await expect(repo.create(P, { title: 'x', ruleText: 'r', category: 'style', checkMode: 'regex' }))
+      .rejects.toThrow(/needs its check settings/);
+    await expect(repo.create(P, {
+      title: 'x', ruleText: 'r', category: 'style', checkMode: 'regex', checkConfig: '{"pattern":"("}',
+    })).rejects.toThrow(/does not compile/);
+    await expect(repo.create(P, {
+      title: 'x', ruleText: 'r', category: 'structure', checkMode: 'heuristic', checkConfig: '{}',
+    })).rejects.toThrow(/word band/);
+
+    // A patch is checked against the mode it lands on.
+    await expect(repo.update(law.id, { checkConfig: '{"pattern":"["}' })).rejects.toThrow(/does not compile/);
+    await repo.update(law.id, { checkMode: 'rubric', checkConfig: null });
+    expect(await repo.get(law.id)).toMatchObject({ checkMode: 'rubric', checkConfig: null });
+    await expect(repo.update(law.id, { checkMode: 'heuristic' })).rejects.toThrow(/needs its check settings/);
+    await repo.update(law.id, { checkMode: 'heuristic', checkConfig: '{"maxWords":900}' });
+    expect((await repo.get(law.id))?.checkMode).toBe('heuristic');
+  });
 });

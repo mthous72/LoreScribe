@@ -16,6 +16,8 @@ import { ProviderRepository } from '../data/providerRepository';
 import { LawsRepository } from '../data/lawsRepository';
 import { RunsRepository } from '../data/runsRepository';
 import { SpendRepository } from '../data/spendRepository';
+import { ViolationsRepository } from '../data/violationsRepository';
+import { Verifier } from '../ai/verify';
 import { Drafter } from '../ai/draft';
 import {
   EncryptedCredentialStore, IndexedDbVault, MemoryVault, type CredentialStore,
@@ -48,6 +50,7 @@ interface Ready {
   runs: RunsRepository;
   /** Spend caps and today's meter — D17. */
   spend: SpendRepository;
+  violations: ViolationsRepository;
   drafter: Drafter;
   /** Where the API key actually lives — D30. Never the database. */
   credentials: CredentialStore;
@@ -214,10 +217,12 @@ export function DbProvider({ children }: { children: ReactNode }) {
         const providers = new ProviderRepository(driver);
         const runs = new RunsRepository(driver);
         const spend = new SpendRepository(driver, runs);
+        const violations = new ViolationsRepository(driver);
         // In memory when the browser refuses IndexedDB: the key then lasts
         // the session and the screen says so by asking for it again.
         const credentials = new EncryptedCredentialStore(
           typeof indexedDB === 'undefined' ? new MemoryVault() : new IndexedDbVault());
+        const verifier = new Verifier({ runs, providers, credentials, violations, spend });
         const storage = await requestPersistence();
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
@@ -237,8 +242,11 @@ export function DbProvider({ children }: { children: ReactNode }) {
           laws: new LawsRepository(driver),
           runs,
           spend,
+          violations,
           credentials,
-          drafter: new Drafter({ brief, plan, runs, providers, credentials, manuscript, versions, spend }),
+          drafter: new Drafter({
+            brief, plan, runs, providers, credentials, manuscript, versions, spend, verifier,
+          }),
           diagnostics, storage, uncleanShutdown, registerFlush, flushAll,
         });
       } catch (e) {

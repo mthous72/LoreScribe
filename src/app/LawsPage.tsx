@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useDb } from './DbProvider';
 import type { Entity } from '../data/codexRepository';
-import type { Law, LawCategory, LawScopeType, LawSeverity } from '../data/lawsRepository';
+import type { Law, LawCategory, LawCheckMode, LawScopeType, LawSeverity } from '../data/lawsRepository';
 
 /**
  * The laws — what the model must, should and would rather do.
@@ -50,6 +50,91 @@ const fromChoice = (c: ScopeChoice): { scopeType: LawScopeType; scopeId: string 
   return { scopeType: 'project', scopeId: null };
 };
 
+/**
+ * How the verification phase checks it (doc 04 phase 2). `prompt` is in the
+ * brief only; the rest are also checked after every draft — the free ones
+ * always, the rubric ones when a critique model is set.
+ */
+const CHECKS: { value: LawCheckMode; text: string }[] = [
+  { value: 'prompt', text: 'in the brief only' },
+  { value: 'regex', text: 'in the brief, and checked by a pattern' },
+  { value: 'heuristic', text: 'in the brief, and checked as a word band' },
+  { value: 'prompt+rubric', text: 'in the brief, and checked by the critique model' },
+  { value: 'rubric', text: 'checked by the critique model only' },
+];
+
+interface CheckFields { pattern: string; minWords: string; maxWords: string }
+const EMPTY_CHECK: CheckFields = { pattern: '', minWords: '', maxWords: '' };
+
+const fieldsOf = (law: Pick<Law, 'checkMode' | 'checkConfig'>): CheckFields => {
+  let c: Record<string, unknown>;
+  try { c = law.checkConfig ? JSON.parse(law.checkConfig) as Record<string, unknown> : {}; } catch { c = {}; }
+  return {
+    pattern: typeof c.pattern === 'string' ? c.pattern : '',
+    minWords: typeof c.minWords === 'number' ? String(c.minWords) : '',
+    maxWords: typeof c.maxWords === 'number' ? String(c.maxWords) : '',
+  };
+};
+
+/** The JSON the repository stores for a mode, or null when the mode carries none. */
+const configFor = (mode: LawCheckMode, f: CheckFields): string | null => {
+  if (mode === 'regex') return JSON.stringify({ pattern: f.pattern });
+  if (mode === 'heuristic') {
+    const band: Record<string, number> = {};
+    if (f.minWords.trim()) band.minWords = Number(f.minWords);
+    if (f.maxWords.trim()) band.maxWords = Number(f.maxWords);
+    return JSON.stringify(band);
+  }
+  return null;
+};
+
+const checkText = (law: Pick<Law, 'checkMode' | 'checkConfig'>): string | null => {
+  const f = fieldsOf(law);
+  switch (law.checkMode) {
+    case 'regex': return `checked by pattern /${f.pattern}/`;
+    case 'heuristic': return `checked as a word band${f.minWords ? ` from ${f.minWords}` : ''}${f.maxWords ? ` to ${f.maxWords}` : ''}`;
+    case 'rubric': return 'checked by the critique model; not in the brief';
+    case 'prompt+rubric': return 'checked by the critique model';
+    default: return null;
+  }
+};
+
+/** The pattern or band inputs a check mode needs. Nothing for the modes that need none. */
+function CheckInputs({ mode, fields, onChange, idPrefix }: {
+  mode: LawCheckMode; fields: CheckFields; onChange: (f: CheckFields) => void; idPrefix: string;
+}) {
+  if (mode === 'regex') {
+    return (
+      <>
+        <label className="sr-only" htmlFor={`${idPrefix}-pattern`}>Pattern</label>
+        <input
+          id={`${idPrefix}-pattern`} value={fields.pattern}
+          onChange={(e) => onChange({ ...fields, pattern: e.target.value })}
+          placeholder="\\bsuddenly\\b" spellCheck={false}
+          className="min-w-0 flex-1 rounded-lg border border-current/20 bg-transparent px-2 py-1 font-mono text-xs" />
+      </>
+    );
+  }
+  if (mode === 'heuristic') {
+    return (
+      <>
+        <label className="text-xs opacity-60" htmlFor={`${idPrefix}-min`}>at least</label>
+        <input
+          id={`${idPrefix}-min`} inputMode="numeric" value={fields.minWords}
+          onChange={(e) => onChange({ ...fields, minWords: e.target.value })}
+          className="w-16 rounded-lg border border-current/20 bg-transparent px-2 py-1 text-xs" />
+        <label className="text-xs opacity-60" htmlFor={`${idPrefix}-max`}>at most</label>
+        <input
+          id={`${idPrefix}-max`} inputMode="numeric" value={fields.maxWords}
+          onChange={(e) => onChange({ ...fields, maxWords: e.target.value })}
+          className="w-16 rounded-lg border border-current/20 bg-transparent px-2 py-1 text-xs" />
+        <span className="text-xs opacity-60">words</span>
+      </>
+    );
+  }
+  return null;
+}
+
 export function LawsPage() {
   const db = useDb();
   const { projectId = '' } = useParams();
@@ -66,6 +151,8 @@ export function LawsPage() {
   const [category, setCategory] = useState<LawCategory>('style');
   const [severity, setSeverity] = useState<LawSeverity>('must');
   const [scope, setScope] = useState<ScopeChoice>('project');
+  const [check, setCheck] = useState<LawCheckMode>('prompt');
+  const [checkFields, setCheckFields] = useState<CheckFields>(EMPTY_CHECK);
 
   useEffect(() => {
     if (db.state !== 'ready' || !projectId) return;
@@ -91,9 +178,13 @@ export function LawsPage() {
   if (db.state !== 'ready') return null;
 
   const add = () => void act(async () => {
-    await db.laws.create(projectId, { title, ruleText: rule, category, severity, ...fromChoice(scope) });
+    await db.laws.create(projectId, {
+      title, ruleText: rule, category, severity, ...fromChoice(scope),
+      checkMode: check, checkConfig: configFor(check, checkFields),
+    });
     setTitle('');
     setRule('');
+    setCheckFields(EMPTY_CHECK);
     return `Added. It is in every brief ${scope === 'project' ? 'for this project' : 'it applies to'} from now on.`;
   });
 
@@ -142,6 +233,15 @@ export function LawsPage() {
           id="law-rule" rows={2} value={rule} onChange={(e) => setRule(e.target.value)}
           placeholder="Do not use em dashes anywhere. Use a comma, a full stop, or a new sentence."
           className="mt-2 w-full rounded-lg border border-current/20 bg-transparent px-2.5 py-1.5 text-sm" />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <select
+            aria-label="How it is checked" value={check}
+            onChange={(e) => setCheck(e.target.value as LawCheckMode)}
+            className="rounded-lg border border-current/20 bg-transparent px-2 py-1 text-xs">
+            {CHECKS.map((c) => <option key={c.value} value={c.value}>{c.text}</option>)}
+          </select>
+          <CheckInputs mode={check} fields={checkFields} onChange={setCheckFields} idPrefix="law" />
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <select
             aria-label="Severity" value={severity}
@@ -205,6 +305,7 @@ export function LawsPage() {
                           </span>
                         )}
                         <span className="text-xs opacity-50">{scopeText(law)}</span>
+                        {checkText(law) && <span className="text-xs opacity-50" data-testid="law-check">{checkText(law)}</span>}
                         <span className="flex-1" />
                         {!law.isSystem && (
                           <>
@@ -253,6 +354,7 @@ function Editor({ law, people, busy, onSave, onDone }: {
   onSave: (patch: {
     title: string; ruleText: string; category: LawCategory; severity: LawSeverity;
     scopeType: LawScopeType; scopeId: string | null; examplesGood: string | null; examplesBad: string | null;
+    checkMode: LawCheckMode; checkConfig: string | null;
   }) => void;
   onDone: () => void;
 }) {
@@ -263,6 +365,8 @@ function Editor({ law, people, busy, onSave, onDone }: {
   const [scope, setScope] = useState<ScopeChoice>(scopeChoice(law));
   const [good, setGood] = useState(law.examplesGood ?? '');
   const [bad, setBad] = useState(law.examplesBad ?? '');
+  const [check, setCheck] = useState<LawCheckMode>(law.checkMode);
+  const [checkFields, setCheckFields] = useState<CheckFields>(fieldsOf(law));
   return (
     <div className="space-y-2" data-testid="law-editor">
       <label className="sr-only" htmlFor={`title-${law.id}`}>Title</label>
@@ -287,6 +391,13 @@ function Editor({ law, people, busy, onSave, onDone }: {
           {people.map((p) => <option key={`p${p.id}`} value={`pov:${p.id}`}>when {p.name} is the point of view</option>)}
         </select>
       </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <select aria-label="How it is checked" value={check} onChange={(e) => setCheck(e.target.value as LawCheckMode)}
+          className="rounded border border-current/20 bg-transparent px-1 py-0.5">
+          {CHECKS.map((c) => <option key={c.value} value={c.value}>{c.text}</option>)}
+        </select>
+        <CheckInputs mode={check} fields={checkFields} onChange={setCheckFields} idPrefix={`check-${law.id}`} />
+      </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <input aria-label="A good example" value={good} onChange={(e) => setGood(e.target.value)} placeholder="Good: …"
           className="rounded-lg border border-current/20 bg-transparent px-2.5 py-1 text-xs" />
@@ -299,6 +410,7 @@ function Editor({ law, people, busy, onSave, onDone }: {
           onClick={() => onSave({
             title, ruleText: rule, category, severity, ...fromChoice(scope),
             examplesGood: good.trim() || null, examplesBad: bad.trim() || null,
+            checkMode: check, checkConfig: configFor(check, checkFields),
           })}
           className="rounded-lg border border-current/20 bg-current/10 px-3 py-1 text-xs font-medium disabled:opacity-50">
           Save

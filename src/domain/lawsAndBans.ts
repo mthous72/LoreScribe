@@ -65,6 +65,9 @@ export interface LawRow {
   isSystem: boolean;
   active: boolean;
   sortKey: string | null;
+  /** How the verification phase checks it. Absent reads as `prompt`. */
+  checkMode?: string | null;
+  checkConfig?: string | null;
 }
 
 export interface BriefLaw {
@@ -77,6 +80,8 @@ export interface BriefLaw {
   examplesGood: string | null;
   examplesBad: string | null;
   isSystem: boolean;
+  checkMode: string;
+  checkConfig: string | null;
 }
 
 /** A fact the model may use, restated as a thing it may not contradict. */
@@ -143,6 +148,7 @@ export function gatherLaws(input: LawsInput): Laws {
         id: l.id, scopeType: l.scopeType, category: l.category,
         severity: asSeverity(l.severity), title: l.title, ruleText: l.ruleText,
         examplesGood: l.examplesGood, examplesBad: l.examplesBad, isSystem: l.isSystem,
+        checkMode: l.checkMode ?? 'prompt', checkConfig: l.checkConfig ?? null,
       } satisfies BriefLaw,
     }))
     .sort((a, b) =>

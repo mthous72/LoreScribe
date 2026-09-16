@@ -90,3 +90,35 @@ test('the hard floor is listed and cannot be changed', async ({ page }) => {
   await expect(floor).toContainText('hard floor');
   await expect(floor.getByRole('button')).toHaveCount(0);
 });
+
+test('a law can carry a pattern check, which is kept and shown', async ({ page }) => {
+  await project(page);
+  await toLaws(page);
+  await page.getByLabel('Law title').fill('No suddenly');
+  await page.getByLabel('The rule, as an instruction').fill('Never write "suddenly".');
+  await page.getByLabel('How it is checked').selectOption('regex');
+  await page.getByLabel('Pattern').fill('\\bsuddenly\\b');
+  await page.getByRole('button', { name: 'Add the law' }).click();
+  const row = page.locator('[data-law]').filter({ hasText: 'No suddenly' });
+  await expect(row).toBeVisible();
+  await expect(row.getByTestId('law-check')).toHaveText('checked by pattern /\\bsuddenly\\b/');
+  expect(await query(page, "SELECT check_mode, check_config FROM law WHERE title = 'No suddenly'"))
+    .toEqual([['regex', JSON.stringify({ pattern: '\\bsuddenly\\b' })]]);
+
+  // A pattern that does not compile is refused with the reason, and the law is unchanged.
+  await row.getByRole('button', { name: 'edit' }).click();
+  const editor = page.getByTestId('law-editor');
+  await editor.getByLabel('Pattern').fill('(');
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('status')).toContainText('does not compile');
+  expect(await query(page, "SELECT check_config FROM law WHERE title = 'No suddenly'"))
+    .toEqual([[JSON.stringify({ pattern: '\\bsuddenly\\b' })]]);
+
+  // Switching to a word band keeps only the band.
+  await editor.getByLabel('How it is checked').selectOption('heuristic');
+  await editor.getByLabel('at most').fill('900');
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(row.getByTestId('law-check')).toHaveText('checked as a word band to 900');
+  expect(await query(page, "SELECT check_mode, check_config FROM law WHERE title = 'No suddenly'"))
+    .toEqual([['heuristic', '{"maxWords":900}']]);
+});

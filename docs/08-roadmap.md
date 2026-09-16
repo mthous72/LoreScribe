@@ -292,8 +292,17 @@ surfaces, a theming system, animation, a component-library dependency.
 ## Phase 3 — Laws *(~2 weeks)*
 - Law CRUD, scoping, presets, the six categories.
 - Injection phase; budget protection for `must` laws.
-- Verification phase: regex, heuristic, then rubric checks.
-- Inline violation UI, targeted auto-revise, amend-the-law flow.
+- Verification phase: regex, heuristic, then rubric checks. *(Built, as the
+  step after every draft: the free checks and the repetition guard always, the
+  rubric laws batched into one `critique` call when that role has a model —
+  never the draft model — under the same spend cap; every rubric quote held
+  against the prose per doc 12 §3, the unlocatable ones stored and shown as
+  uncertain. Findings are `law_violation` rows on the draft run; the panel lists
+  them and never blocks acceptance. Laws take their check mode and pattern or
+  word band on the Laws page.)*
+- Inline violation UI, targeted auto-revise, amend-the-law flow. *(The list
+  under the draft is the first of these; underlines in the editor, auto-revise
+  and amend-from-the-finding are still to do.)*
 - System hard-floor laws, enforced **structurally** — `entity.maturity` and
   `is_real_person` checked against cast and register before the call
   ([doc 13](13-legal-and-compliance.md)) — plus the provider-refusal reporting path.

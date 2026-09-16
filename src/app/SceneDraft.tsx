@@ -5,6 +5,8 @@ import { NoDraftModelError, SpendCapError, type DraftEvent } from '../ai/draft';
 import { explainProviderError } from '../ai/explain';
 import type { SceneBeat } from '../data/planRepository';
 import { raisedStop, usd, type SpendMeter } from '../domain/spend';
+import type { Verdict } from '../ai/verify';
+import type { Finding } from '../domain/verify';
 
 /**
  * Draft a beat, from inside the scene.
@@ -18,6 +20,13 @@ import { raisedStop, usd, type SpendMeter } from '../domain/spend';
  * What it costs is said after, not guessed before: the provider's own token
  * counts against the profile's prices. The window the brief was fitted to is
  * the model's, from the profile — the first time the budget has a real number.
+ *
+ * After the draft, what the laws make of it ([doc 04](../../docs/04-laws-engine.md)
+ * phase 2): the free checks and the repetition guard every time, the rubric
+ * laws through the critique model when one is set — each finding with the
+ * law, the words it points to, and the fix. Uncertain claims, where the model
+ * could not point to the text, are shown as that and never as findings. None
+ * of it blocks acceptance; that stays the writer's call.
  *
  * Under the controls, what today has cost so far against the project's caps
  * ([D17](../../docs/10-decisions.md)). Past the warning the line says so and
@@ -45,6 +54,7 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
   const [words, setWords] = useState(300);
   const [text, setText] = useState('');
   const [done, setDone] = useState<Done | null>(null);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [model, setModel] = useState<{ model: string; window: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ text: string; needsModel?: boolean; stopped?: SpendMeter } | null>(null);
@@ -82,6 +92,7 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
     setBusy(true);
     setText('');
     setDone(null);
+    setVerdict(null);
     setNote(null);
     try {
       // The ban list and the seam read the prose as saved; the last sentence is
@@ -91,6 +102,7 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
         { projectId, sceneId, beatId: beatId || null, targetWords: words }, ctl.signal)) {
         if (ev.kind === 'brief') setModel({ model: ev.model, window: ev.window });
         else if (ev.kind === 'text') setText((t) => t + ev.text);
+        else if (ev.kind === 'verdict') setVerdict(ev.verdict);
         else setDone(ev);
       }
     } catch (e) {
@@ -125,6 +137,7 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
       setNote({ text: `Accepted. The scene is now ${total.toLocaleString()} words; what was there before is kept as a draft.` });
       setText('');
       setDone(null);
+      setVerdict(null);
       onAccepted();
     } catch (e) {
       setNote({ text: (e as Error).message ?? String(e) });
@@ -227,6 +240,8 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
         </div>
       )}
 
+      {done && verdict && <Findings verdict={verdict} projectId={projectId} />}
+
       {done && (
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs opacity-70" data-testid="draft-done">
           <span>{statusLine}</span>
@@ -247,7 +262,7 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
             </button>
           )}
           <button
-            onClick={() => { setText(''); setDone(null); }}
+            onClick={() => { setText(''); setDone(null); setVerdict(null); }}
             disabled={busy}
             className="underline disabled:opacity-30">
             Discard
@@ -255,5 +270,86 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
         </div>
       )}
     </section>
+  );
+}
+
+function rubricLine(v: Verdict): string | null {
+  const r = v.rubric;
+  const n = `${r.laws} rubric ${r.laws === 1 ? 'law' : 'laws'}`;
+  switch (r.state) {
+    case 'no-laws': return null;
+    case 'ran': return `${n} checked by the critique model${r.costUsd !== null ? ` for ${usd(r.costUsd)}` : ''}.`;
+    case 'no-model': return `${n} unchecked: no critique model is set.`;
+    case 'no-key': return `${n} unchecked: ${r.detail ?? 'no key is saved for the critique model.'}`;
+    case 'blocked': return `${n} unchecked: ${r.detail ?? 'the spend stop.'}`;
+    case 'cancelled': return `${n} unchecked, because the draft was stopped.`;
+    case 'refused': return `${n} unchecked: the critique model declined.`;
+    case 'malformed': return `${n} unchecked: ${r.detail ?? 'the critique model did not answer in the shape asked for.'}`;
+    case 'failed': return `${n} unchecked: ${r.detail ?? 'the check failed.'}`;
+  }
+}
+
+function FindingLine({ f }: { f: Finding }) {
+  return (
+    <li data-finding={f.lawId} data-source={f.source} className="text-xs">
+      <span className="rounded-full border border-current/25 px-1.5 opacity-70">{f.severity}</span>{' '}
+      <span className="font-medium">{f.lawTitle}</span>
+      {f.quote && <> — <q className="opacity-90">{f.quote}</q></>}
+      <span className="opacity-70"> {f.explanation}</span>
+      {f.suggestedFix && <span className="opacity-70"> Fix: {f.suggestedFix}</span>}
+    </li>
+  );
+}
+
+/** What the laws made of the draft. Informs the accept button; never disables it. */
+function Findings({ verdict, projectId }: { verdict: Verdict; projectId: string }) {
+  const { findings, uncertain, repetition, skipped, rubric } = verdict;
+  const clean = findings.length === 0 && repetition.length === 0;
+  const line = rubricLine(verdict);
+  return (
+    <div className="mt-2 rounded-lg border border-current/15 p-2.5" data-testid="draft-findings"
+      data-findings={findings.length} data-uncertain={uncertain.length}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-50">
+        {clean ? 'Checked: nothing to flag' : `Checked: ${findings.length + repetition.length} to look at`}
+      </p>
+      {findings.length > 0 && (
+        <ul className="mt-1.5 space-y-1">{findings.map((f, i) => <FindingLine key={`${f.lawId}-${i}`} f={f} />)}</ul>
+      )}
+      {repetition.length > 0 && (
+        <p className="mt-1.5 text-xs opacity-80" data-testid="draft-repetition">
+          <span className="font-medium">Repeats what is already written:</span>{' '}
+          {repetition.map((r) => (r.kind === 'opening'
+            ? `opens like an earlier scene (“${r.value}”)`
+            : `“${r.value}” ×${r.detail}`)).join('; ')}
+        </p>
+      )}
+      {uncertain.length > 0 && (
+        <div className="mt-1.5 text-xs opacity-60" data-testid="draft-uncertain">
+          <p>
+            The critique model also claimed {uncertain.length} more but could not point to the words,
+            so {uncertain.length === 1 ? 'it is' : 'they are'} not counted:
+          </p>
+          <ul className="mt-0.5 list-disc pl-4">
+            {uncertain.map((u, i) => (
+              <li key={`${u.lawId}-u${i}`}>{u.lawTitle}: {u.explanation}{u.quote ? ` (claimed “${u.quote}”)` : ''}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(line || skipped.length > 0) && (
+        <p className="mt-1.5 text-xs opacity-60" data-testid="draft-rubric" data-state={rubric.state}>
+          {line}
+          {rubric.state === 'no-model' && (
+            <>
+              {' '}
+              <Link to={`/project/${projectId}/providers`} className="underline">Providers →</Link>
+            </>
+          )}
+          {skipped.length > 0 && (
+            <> {skipped.length} {skipped.length === 1 ? 'check' : 'checks'} could not run: {skipped.map((s) => s.reason).join('; ')}.</>
+          )}
+        </p>
+      )}
+    </div>
   );
 }
