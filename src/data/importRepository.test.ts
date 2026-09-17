@@ -344,4 +344,75 @@ describe('laws and the plan', () => {
     expect(await all('SELECT name, summary FROM entity WHERE deleted_at IS NULL'))
       .toEqual([['Wren', 'dock clerk, male']]);
   });
+
+});
+
+describe('prepared proposals — the extraction lane', () => {
+  const prepared = (over: Partial<import('./importRepository').PreparedProposal> = {}) => ({
+    table: 'entity', op: 'new' as const,
+    payload: { name: 'Ilva', typeKey: 'character', summary: 'Keeper.', description: null, attributes: {} },
+    rationale: 'from cast.md — the model read it as a character', confidence: 0.9,
+    evidenceQuote: 'keeps the seal', evidenceVerified: true, ...over,
+  });
+
+  it('stages with confidence and evidence, and accept-all leaves the unverified pending', async () => {
+    const { runId } = await repo.stagePrepared(PROJECT, [
+      prepared(),
+      prepared({ payload: { name: 'Maren', typeKey: 'character', summary: null, description: null, attributes: {} },
+        evidenceQuote: 'Maren walked in', evidenceVerified: false, confidence: 0.95 }),
+      prepared({ table: 'fact', payload: { key: 'k1', predicate: 'The seal is a fake.', statement: 'The seal is a fake.', subjectName: 'Ilva' } }),
+    ]);
+    const before = await repo.listProposals(runId);
+    expect(before.map((p) => [p.status, p.evidenceVerified, p.confidence, p.evidenceQuote])).toEqual([
+      ['pending', true, 0.9, 'keeps the seal'],
+      ['pending', false, 0.95, 'Maren walked in'],
+      ['pending', true, 0.9, 'keeps the seal'],
+    ]);
+    await repo.acceptAll(runId);
+    const after = await repo.listProposals(runId);
+    expect(after.map((p) => p.status)).toEqual(['accepted', 'pending', 'accepted']);
+
+    // Applied: Ilva and her fact, with the fact's subject resolved by name; Maren untouched.
+    const result = await repo.apply(PROJECT, runId);
+    expect(result).toEqual({ applied: 2, failed: [] });
+    expect(await count('entity')).toBe(1);
+    const [fact] = await all('SELECT subject_entity_id, statement FROM fact');
+    const ilva = (await all('SELECT id FROM entity'))[0]![0];
+    expect(fact).toEqual([ilva, 'The seal is a fake.']);
+    // A rule's proposals stage as verified: the payload is the source.
+    const ruled = await repo.stage(PROJECT, [parseMarkdown('cast.md', CHARACTER)], { 'cast.md#0': { kind: 'entity', typeKey: 'character' } });
+    const ruledRows = await repo.listProposals(ruled.runId);
+    expect(ruledRows.every((p) => p.evidenceVerified && p.confidence === null)).toBe(true);
+  });
+
+  it('records which model call produced the run', async () => {
+    await driver.query(
+      `INSERT INTO ai_run (id, project_id, purpose, status, created_at)
+       VALUES ('run-x', ?, 'extract', 'ok', 1)`,
+      [PROJECT], 'run');
+    const { runId } = await repo.stagePrepared(PROJECT, [prepared()], 'run-x');
+    expect(await all('SELECT ai_run_id FROM proposal_run WHERE id = ?', [runId])).toEqual([['run-x']]);
+  });
+
+  it('lets a writer edit what the table allows, and nothing else', async () => {
+    const { runId } = await repo.stagePrepared(PROJECT, [
+      prepared(),
+      prepared({ table: 'law', payload: { category: 'style', severity: 'must', title: 'x', ruleText: 'No adverbs.', order: 0 } }),
+    ]);
+    const [entity, law] = await repo.listProposals(runId);
+    await repo.edit(entity!.id, { name: ' Ilva Vell ', summary: '' });
+    await repo.edit(law!.id, { category: 'content', ruleText: 'No adverbs on dialogue tags.' });
+    const [e2, l2] = await repo.listProposals(runId);
+    expect(e2!.payload).toMatchObject({ name: 'Ilva Vell', summary: null, typeKey: 'character' });
+    expect(l2!.payload).toMatchObject({ category: 'content', ruleText: 'No adverbs on dialogue tags.', title: 'x' });
+
+    await expect(repo.edit(entity!.id, { attributes: {} })).rejects.toThrow(/not something an import can change/);
+    await expect(repo.edit(entity!.id, { name: '  ' })).rejects.toThrow(/cannot be empty/);
+    await expect(repo.edit('nope', { name: 'x' })).rejects.toThrow(/no such proposal/);
+
+    await repo.acceptAll(runId);
+    await repo.apply(PROJECT, runId);
+    expect(await all('SELECT name FROM entity')).toEqual([['Ilva Vell']]);
+    await expect(repo.edit(entity!.id, { name: 'Late' })).rejects.toThrow(/already been applied/);
+  });
 });

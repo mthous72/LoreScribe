@@ -193,6 +193,17 @@ shapeless output this project exists to beat ([D29](10-decisions.md)).
   `seed_kind = 'gap_fill'`, a value the schema has carried from the start, and is
   reviewed by the screen the importer already uses ([D29](10-decisions.md)).
 - Model profiles / roles.
+- The extraction lane for bible intake *(built)*: the `extract` role reads
+  each file in section-sized chunks, one `ai_run` each under the spend cap, and
+  proposes entities with aliases, facts with who knows them, and laws — each
+  quoting the words it read. Quotes are held against the file (doc 12 §3); an
+  unlocatable claim stages as unverified, is shown as such, and is never
+  accepted by accept-all. Types come from the project; an item naming a type the
+  project lacks is dropped and named. Proposals land in the same `proposal_run`
+  the rules use and are reviewed on the same screen, now with confidence,
+  evidence, accept-anyway, and an edit of the fields that matter before apply.
+  Plans and scenes stay with the rules. Scene extraction after a draft is the
+  next use of the same parser.
 - The compiler, all nine steps, with the **brief inspector UI**.
 - Draft, Continue, Expand, Rewrite — **beat-sized by default**, with whole-scene
   as a coarser mode. A beat's prose is proposed, diffed and spliced in place;

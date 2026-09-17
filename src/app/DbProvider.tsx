@@ -18,6 +18,7 @@ import { RunsRepository } from '../data/runsRepository';
 import { SpendRepository } from '../data/spendRepository';
 import { ViolationsRepository } from '../data/violationsRepository';
 import { Verifier } from '../ai/verify';
+import { Extractor } from '../ai/extract';
 import { Drafter } from '../ai/draft';
 import {
   EncryptedCredentialStore, IndexedDbVault, MemoryVault, type CredentialStore,
@@ -52,6 +53,8 @@ interface Ready {
   spend: SpendRepository;
   violations: ViolationsRepository;
   drafter: Drafter;
+  /** The extraction lane: a bible read by the `extract` role into import proposals. */
+  extractor: Extractor;
   /** Where the API key actually lives — D30. Never the database. */
   credentials: CredentialStore;
   diagnostics: Diagnostics;
@@ -223,6 +226,8 @@ export function DbProvider({ children }: { children: ReactNode }) {
         const credentials = new EncryptedCredentialStore(
           typeof indexedDB === 'undefined' ? new MemoryVault() : new IndexedDbVault());
         const verifier = new Verifier({ runs, providers, credentials, violations, spend });
+        const imports = new ImportRepository(driver, codex, facts, manuscript, plan);
+        const extractor = new Extractor({ runs, providers, credentials, spend, imports });
         const storage = await requestPersistence();
         const diagnostics = await driver.diagnostics();
         if (cancelled) return;
@@ -234,7 +239,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           search: new SearchRepository(driver),
           facts,
           versions,
-          imports: new ImportRepository(driver, codex, facts, manuscript, plan),
+          imports,
           exports: new ExportRepository(driver),
           plan,
           brief,
@@ -244,6 +249,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
           spend,
           violations,
           credentials,
+          extractor,
           drafter: new Drafter({
             brief, plan, runs, providers, credentials, manuscript, versions, spend, verifier,
           }),

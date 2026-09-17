@@ -62,7 +62,44 @@ export interface ProposalRow {
   payload: Record<string, unknown>;
   rationale: string | null;
   status: ProposalStatus;
+  /** The model's, 0–1; null for a rule's proposal, which claims no confidence. */
+  confidence: number | null;
+  /** The words a model pointed to. Null for a rule's proposal: the payload is the source. */
+  evidenceQuote: string | null;
+  /**
+   * False only for a model claim whose quote is not in the file. Such a row
+   * stays `pending` through accept-all and is applied only when the writer
+   * accepts it by hand.
+   */
+  evidenceVerified: boolean;
 }
+
+/**
+ * A proposal ready to stage, from whichever lane produced it. The rule-based
+ * stager builds these; the extraction lane hands them over already built.
+ */
+export interface PreparedProposal {
+  table: string;
+  op: 'new' | 'update';
+  payload: unknown;
+  rationale: string;
+  confidence?: number | null;
+  evidenceQuote?: string | null;
+  /** Defaults to true: a rule's payload is the source text itself. */
+  evidenceVerified?: boolean;
+}
+
+/** What a writer may change on a proposal before it is applied, by table. */
+export const EDITABLE: Record<string, string[]> = {
+  entity: ['name', 'typeKey', 'summary'],
+  entity_alias: ['alias'],
+  fact: ['statement'],
+  fact_knowledge: ['belief', 'learnedHow'],
+  note: ['title'],
+  scene: ['title'],
+  law: ['category', 'title', 'ruleText'],
+  plan: ['arcName'],
+};
 
 /** What a node was decided to be. Keyed `docPath#nodeId`. */
 export type Decisions = Record<string, Destination>;
@@ -83,7 +120,11 @@ interface EntityPayload {
   importance?: string; status?: string;
 }
 interface AliasPayload { entityName: string; alias: string }
-interface FactPayload { key: string; predicate: string; statement: string }
+interface FactPayload {
+  key: string; predicate: string; statement: string;
+  /** The extraction lane names the subject; resolved by name at apply time like everything else. */
+  subjectName?: string | null;
+}
 interface KnowledgePayload {
   factKey: string; entityName: string; belief: Belief; learnedHow: string | null;
 }
@@ -144,12 +185,10 @@ export class ImportRepository {
   async stage(
     projectId: string, docs: readonly SourceDoc[], decisions: Decisions,
   ): Promise<{ runId: string; proposals: number }> {
-    const now = Date.now();
-    const runId = uuidv7(now);
-    const rows: { table: string; op: 'new' | 'update'; payload: unknown; why: string }[] = [];
+    const rows: PreparedProposal[] = [];
 
     const add = (table: string, payload: unknown, why: string, op: 'new' | 'update' = 'new') => {
-      rows.push({ table, op, payload, why });
+      rows.push({ table, op, payload, rationale: why });
     };
 
     for (const doc of docs) {
@@ -228,20 +267,35 @@ export class ImportRepository {
       }
     }
 
+    return this.stagePrepared(projectId, rows);
+  }
+
+  /**
+   * Stage proposals already built — the extraction lane's, or the rules'.
+   *
+   * `aiRunId` names the model call that produced them, when one did; the
+   * schema has carried the column since the table was written for this.
+   */
+  async stagePrepared(
+    projectId: string, rows: readonly PreparedProposal[], aiRunId: string | null = null,
+  ): Promise<{ runId: string; proposals: number }> {
+    const now = Date.now();
+    const runId = uuidv7(now);
     await this.driver.batch([
       {
-        sql: `INSERT INTO proposal_run (id,project_id,seed_kind,status,created_at)
-              VALUES (?,?, 'import', 'staged', ?)`,
-        params: [runId, projectId, now],
+        sql: `INSERT INTO proposal_run (id,project_id,ai_run_id,seed_kind,status,created_at)
+              VALUES (?,?,?, 'import', 'staged', ?)`,
+        params: [runId, projectId, aiRunId, now],
       },
-      ...rows.map(({ table, op, payload, why }) => ({
-        sql: `INSERT INTO proposal (id,run_id,target_table,op,payload,rationale,status,created_at)
-              VALUES (?,?,?,?,?,?, 'pending', ?)`,
-        params: [uuidv7(now), runId, table, op, JSON.stringify(payload), why, now],
+      ...rows.map((r, i) => ({
+        sql: `INSERT INTO proposal (id,run_id,target_table,op,payload,rationale,confidence,evidence_quote,
+                                    evidence_verified,status,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?, 'pending', ?)`,
+        params: [uuidv7(now + i), runId, r.table, r.op, JSON.stringify(r.payload), r.rationale,
+          r.confidence ?? null, r.evidenceQuote ?? null, Number(r.evidenceVerified ?? true), now],
       })),
-      this.#op(runId, 'insert', { seedKind: 'import', proposals: rows.length }, now),
+      this.#op(runId, 'insert', { seedKind: 'import', proposals: rows.length, aiRunId }, now),
     ], true);
-
     return { runId, proposals: rows.length };
   }
 
@@ -270,14 +324,47 @@ export class ImportRepository {
 
   async listProposals(runId: string): Promise<ProposalRow[]> {
     const rows = await this.#all(
-      `SELECT id, run_id, target_table, target_id, op, payload, rationale, status
+      `SELECT id, run_id, target_table, target_id, op, payload, rationale, status,
+              confidence, evidence_quote, evidence_verified
        FROM proposal WHERE run_id = ? ORDER BY rowid`, [runId]);
     return rows.map((r) => ({
       id: r[0] as string, runId: r[1] as string, targetTable: r[2] as string,
       targetId: r[3] as string | null, op: r[4] as 'new' | 'update',
       payload: JSON.parse(String(r[5])) as Record<string, unknown>,
       rationale: r[6] as string | null, status: r[7] as ProposalStatus,
+      confidence: r[8] === null ? null : Number(r[8]), evidenceQuote: r[9] as string | null,
+      evidenceVerified: Number(r[10]) !== 0,
     }));
+  }
+
+  /**
+   * Change a proposal before it is applied — the fields `EDITABLE` names for
+   * its table, nothing else. A model that got the type wrong or a rule that
+   * cut a name short is one edit away from right, rather than a rejection and
+   * a hand-made row later.
+   */
+  async edit(id: string, patch: Record<string, unknown>): Promise<void> {
+    const rows = await this.#all('SELECT target_table, payload, status FROM proposal WHERE id = ?', [id]);
+    const row = rows[0];
+    if (!row) throw new Error('no such proposal');
+    if (row[2] === 'applied' || row[2] === 'undone') throw new Error('that proposal has already been applied');
+    const allowed = new Set(EDITABLE[String(row[0])] ?? []);
+    const payload = JSON.parse(String(row[1])) as Record<string, unknown>;
+    const changed: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if (!allowed.has(key)) throw new Error(`${key} is not something an import can change on a ${String(row[0])}`);
+      const clean = typeof value === 'string' ? value.trim() : value;
+      if (typeof clean === 'string' && !clean && key !== 'learnedHow' && key !== 'summary') {
+        throw new Error(`${key} cannot be empty`);
+      }
+      changed[key] = typeof clean === 'string' && !clean ? null : clean;
+    }
+    if (Object.keys(changed).length === 0) return;
+    const now = Date.now();
+    await this.driver.batch([
+      { sql: 'UPDATE proposal SET payload = ? WHERE id = ?', params: [JSON.stringify({ ...payload, ...changed }), id] },
+      this.#op(id, 'update', { edited: changed }, now),
+    ], true);
   }
 
   /* ----------------------------------------------------------- the decisions */
@@ -291,11 +378,17 @@ export class ImportRepository {
     ]), true);
   }
 
+  /**
+   * Accept every pending proposal whose evidence holds. An unverified claim —
+   * a model quoting words that are not in the file — is left pending, to be
+   * accepted one at a time by a writer who has looked at it, or not at all.
+   */
   async acceptAll(runId: string): Promise<void> {
     const now = Date.now();
     await this.driver.batch([
       {
-        sql: "UPDATE proposal SET status = 'accepted' WHERE run_id = ? AND status = 'pending'",
+        sql: `UPDATE proposal SET status = 'accepted'
+              WHERE run_id = ? AND status = 'pending' AND evidence_verified = 1`,
         params: [runId],
       },
       this.#op(runId, 'update', { acceptedAll: true }, now),
@@ -442,8 +535,9 @@ export class ImportRepository {
 
     if (p.targetTable === 'fact') {
       const payload = p.payload as unknown as FactPayload;
+      const subject = payload.subjectName ? byName.get(nameKey(payload.subjectName)) ?? null : null;
       const id = await this.facts.createFact(projectId, {
-        predicate: payload.predicate, statement: payload.statement,
+        predicate: payload.predicate, statement: payload.statement, subjectEntityId: subject,
       });
       factIds.set(payload.key, id);
       return id;

@@ -178,3 +178,66 @@ test('an entry that already exists is offered as an update, not a second one', a
   await expect.poll(() => query(page, 'SELECT COUNT(*) FROM entity WHERE deleted_at IS NULL'),
     { timeout: 15_000 }).toEqual([[1]]);
 });
+
+test('the model lane says what it needs when no extract model is set, and sends nothing', async ({ page }) => {
+  await importPage(page);
+  await page.getByLabel('Choose files').setInputFiles([file('characters-ilva.md', ILVA)]);
+  const lane = page.getByTestId('ask-model');
+  await expect(lane).toContainText('1 file in 1 call');
+  await lane.getByRole('button', { name: 'Let the model read them' }).click();
+  await expect(page.getByRole('status')).toContainText('No extract model is set');
+  await expect(page.getByRole('status').getByRole('link', { name: 'Providers →' })).toBeVisible();
+  expect(await query(page, 'SELECT COUNT(*) FROM ai_run')).toEqual([[0]]);
+  expect(await query(page, 'SELECT COUNT(*) FROM proposal')).toEqual([[0]]);
+});
+
+test('a proposal can be edited before it is applied, and the edit is what lands', async ({ page }) => {
+  await importPage(page);
+  await page.getByLabel('Choose files').setInputFiles([file('characters-ilva.md', ILVA)]);
+  await page.getByRole('button', { name: 'Stage these changes' }).click();
+  const row = page.locator('[data-proposal="entity"]');
+  await row.getByRole('button', { name: 'edit' }).click();
+  const editor = page.getByTestId('proposal-editor');
+  await editor.getByLabel('name').fill('Ilva Vell');
+  await editor.getByLabel('summary').fill('Keeper of the seal.');
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(row).toContainText('Ilva Vell');
+  await page.getByRole('button', { name: /^Apply/ }).click();
+  await expect.poll(() => query(page, 'SELECT name, summary FROM entity'), { timeout: 15_000 })
+    .toEqual([['Ilva Vell', 'Keeper of the seal.']]);
+});
+
+test('a model claim that cannot be traced to the file waits for the writer, and can be taken anyway', async ({ page }) => {
+  await importPage(page);
+  // A staged run as the extraction lane leaves one: two verified rows accepted, one unverified pending.
+  const [[projectId]] = (await query(page, 'SELECT id FROM project ORDER BY created_at DESC LIMIT 1')) as [[string]];
+  await query(page, `INSERT INTO proposal_run (id, project_id, seed_kind, status, created_at)
+                     VALUES ('run-m', ?, 'import', 'staged', ?)`, [projectId, Date.now()]);
+  const insert = (id: string, name: string, verified: number, status: string) => query(page,
+    `INSERT INTO proposal (id, run_id, target_table, op, payload, rationale, confidence, evidence_quote,
+                           evidence_verified, status, created_at)
+     VALUES (?, 'run-m', 'entity', 'new', ?, 'from cast.md — the model read it as a character', 0.8, ?, ?, ?, ?)`,
+    [id, JSON.stringify({ name, typeKey: 'character', summary: null, description: null, attributes: {} }),
+      `${name} keeps the seal`, verified, status, Date.now()]);
+  await insert('p-ilva', 'Ilva', 1, 'accepted');
+  await insert('p-maren', 'Maren', 0, 'pending');
+
+  // Reopen the screen on that run through the page's own review path: reload and pick it up.
+  await page.reload();
+  await page.waitForFunction(() => 'runSpike' in window, null, { timeout: 30_000 });
+  await expect(page.locator('[data-run-status="staged"]')).toBeVisible();
+  await page.getByRole('button', { name: 'review' }).click();
+
+  const maren = page.locator('[data-proposal="entity"]').filter({ hasText: 'Maren' });
+  await expect(maren).toHaveAttribute('data-verified', 'false');
+  await expect(maren).toHaveAttribute('data-status', 'pending');
+  await expect(maren.getByTestId('unverified')).toHaveText('could not be traced to the file');
+  await expect(page.getByText(/1 more could not be traced to the files and waits for you/)).toBeVisible();
+  await expect(maren).toContainText('80%');
+
+  // Apply without touching it: only Ilva lands.
+  await page.getByRole('button', { name: /^Apply 1$/ }).click();
+  await expect.poll(() => query(page, 'SELECT name FROM entity WHERE deleted_at IS NULL'), { timeout: 15_000 })
+    .toEqual([['Ilva']]);
+  expect(await query(page, "SELECT status FROM proposal WHERE id = 'p-maren'")).toEqual([['pending']]);
+});
