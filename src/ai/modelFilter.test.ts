@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterModels, isFree } from './modelFilter';
+import { filterModels, isFree, sortByPrice } from './modelFilter';
 import type { ModelInfo } from './provider';
 
 const model = (id: string, over: Partial<ModelInfo>): ModelInfo => ({
@@ -25,5 +25,16 @@ describe('model filters', () => {
     expect(ids({ free: true, uncensored: false })).toEqual(['free', 'free-moderated']);
     expect(ids({ free: false, uncensored: true })).toEqual(['paid', 'free', 'unpriced', 'half']);
     expect(ids({ free: true, uncensored: true })).toEqual(['free']);
+  });
+  it('sorts cheapest first by in plus out, unpriced last, ties by name', () => {
+    const sorted = sortByPrice([
+      model('b-mid', { costInPerMtok: 1, costOutPerMtok: 2 }),
+      model('unknown', { costInPerMtok: null, costOutPerMtok: 4 }),
+      model('a-mid', { costInPerMtok: 2, costOutPerMtok: 1 }),
+      model('dear', { costInPerMtok: 10, costOutPerMtok: 30 }),
+      model('free', { costInPerMtok: 0, costOutPerMtok: 0 }),
+      model('cheap-in-dear-out', { costInPerMtok: 0, costOutPerMtok: 2.5 }),
+    ]).map((m) => m.id);
+    expect(sorted).toEqual(['free', 'cheap-in-dear-out', 'a-mid', 'b-mid', 'dear', 'unknown']);
   });
 });

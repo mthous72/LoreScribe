@@ -7,7 +7,7 @@ import { explainProviderError as explain } from '../ai/explain';
 import type { ModelProfile, ProfileRole, ProviderAccount } from '../data/providerRepository';
 import type { Project } from '../data/projectRepository';
 import { usd, type SpendMeter } from '../domain/spend';
-import { filterModels, type ModelFilters } from '../ai/modelFilter';
+import { filterModels, sortByPrice, type ModelFilters } from '../ai/modelFilter';
 
 /**
  * Accounts, keys, and which model does which job.
@@ -38,6 +38,12 @@ import { filterModels, type ModelFilters } from '../ai/modelFilter';
  * editable here in full. The panel that hits the stop offers the doubling;
  * this is where a writer sets them on purpose.
  *
+ * **One overall choice, then exceptions.** The `default` row is the model
+ * every job uses when it has none of its own, kept with no project so it
+ * holds for all of them; a job set below it, for this project, overrides it.
+ * The list under each is cheapest first, with the two filters a writer
+ * reaches for in a list of hundreds: free, and unmoderated.
+ *
  * Reached two ways. The **Settings** tab in the top bar opens it with no
  * project fixed — the key is not a project's, and the first thing a new
  * writer needs is a place to put it before any book exists — and the roles
@@ -46,6 +52,7 @@ import { filterModels, type ModelFilters } from '../ai/modelFilter';
  */
 
 const ROLES: { role: ProfileRole; what: string }[] = [
+  { role: 'default', what: 'every job not set below — one choice, kept for all your projects' },
   { role: 'draft', what: 'writes prose — the one place quality is the whole point' },
   { role: 'revise', what: 'patches flagged spans, never the whole scene' },
   { role: 'critique', what: 'checks a draft against the laws and the beats' },
@@ -193,7 +200,8 @@ export function ProvidersPage() {
   const choose = (role: ProfileRole, account: ProviderAccount, modelId: string) => void act(async () => {
     if (!modelId) return;
     const model = models[account.id]?.find((m) => m.id === modelId);
-    await providers.setProfile(projectId, role, {
+    // The default is the overall choice: no project, so every project reads it.
+    await providers.setProfile(role === 'default' ? null : projectId, role, {
       providerAccountId: account.id, modelId,
       contextWindow: model?.contextWindow ?? null,
       costInPerMtok: model?.costInPerMtok ?? null,
@@ -212,7 +220,9 @@ export function ProvidersPage() {
   });
 
   const tested = accounts.filter((a) => models[a.id]?.length);
-  const offered = Object.fromEntries(tested.map((a) => [a.id, filterModels(models[a.id] ?? [], filters)]));
+  const offered = Object.fromEntries(
+    tested.map((a) => [a.id, sortByPrice(filterModels(models[a.id] ?? [], filters))]));
+  const fallback = profiles.find((p) => p.role === 'default');
   const totalModels = tested.reduce((n, a) => n + (models[a.id]?.length ?? 0), 0);
   const shownModels = tested.reduce((n, a) => n + (offered[a.id]?.length ?? 0), 0);
 
@@ -399,7 +409,11 @@ export function ProvidersPage() {
                           }}
                           className="max-w-[20rem] rounded border border-current/20 bg-transparent px-1 py-0.5
                                  text-xs">
-                          <option value="">{current ? `${current.modelId} (kept)` : 'choose a model…'}</option>
+                          <option value="">
+                            {current ? `${current.modelId} (kept)`
+                              : fallback && role !== 'default' ? `uses the default: ${fallback.modelId}`
+                                : 'choose a model…'}
+                          </option>
                           {tested.flatMap((a) => (offered[a.id] ?? []).map((m) => (
                             <option key={`${a.id}|${m.id}`} value={`${a.id}|${m.id}`}>
                               {m.name} · {(m.contextWindow / 1000).toFixed(0)}k

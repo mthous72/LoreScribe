@@ -164,6 +164,20 @@ describe('the request', () => {
     await expect(collect(d, null)).rejects.toBeInstanceOf(NoDraftModelError);
   });
 
+  it('falls back to the default model when the role has none of its own', async () => {
+    await driver.query('DELETE FROM model_profile', [], 'run');
+    const [account] = await providers.listAccounts();
+    await providers.setProfile(null, 'default', { providerAccountId: account!.id, modelId: 'fake/everything', contextWindow: 4000 });
+    const { adapter, asked } = fake([text('x'), ...finished()]);
+    const events = await collect(await drafter(adapter), beatId);
+    expect(asked[0]?.model).toBe('fake/everything');
+    expect(events.find((e) => e.kind === 'brief')).toMatchObject({ model: 'fake/everything', window: 4000 });
+    // A role of its own wins over the default.
+    await providers.setProfile(P, 'draft', { providerAccountId: account!.id, modelId: 'fake/strong' });
+    await collect(await drafter(adapter), beatId);
+    expect(asked[1]?.model).toBe('fake/strong');
+  });
+
   it('refuses without a saved key', async () => {
     const d = await drafter(fake([]).adapter, false);
     await expect(collect(d, null)).rejects.toThrow(/No key is saved/);

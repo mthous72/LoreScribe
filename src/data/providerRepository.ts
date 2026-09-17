@@ -15,7 +15,13 @@ import type { DataPolicy } from '../ai/provider';
  */
 
 export type AccountKind = 'openrouter' | 'ollama' | 'llamacpp' | 'lmstudio' | 'openai_compat';
-export type ProfileRole = 'draft' | 'revise' | 'critique' | 'summarise' | 'extract' | 'embed' | 'name';
+/**
+ * The jobs the app calls, plus `default`: the model every job uses when it
+ * has none of its own. Set with `projectId = null` it is the one overall
+ * choice, kept for every project; a role set for a project overrides it.
+ */
+export type ProfileRole =
+  | 'default' | 'draft' | 'revise' | 'critique' | 'summarise' | 'extract' | 'embed' | 'name';
 
 export interface ProviderAccount {
   id: string;

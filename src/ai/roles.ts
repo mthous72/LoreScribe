@@ -16,10 +16,13 @@ import type { ProviderAdapter } from './provider';
  * by each pipeline step.
  */
 
-/** No profile for the role, or its account is gone or switched off. The panel turns this into a link. */
+/**
+ * No profile for the role and no default, or the account is gone or switched
+ * off. The panel turns this into a link.
+ */
 export class NoModelError extends Error {
   constructor(readonly role: ProfileRole) {
-    super(`No ${role} model is set for this project. Choose one on the Providers page.`);
+    super(`No ${role} model is set for this project, and no default. Choose one under Settings.`);
     this.name = 'NoModelError';
   }
 }
@@ -38,10 +41,15 @@ export interface Resolved {
   account: ProviderAccount;
 }
 
+/**
+ * The role's own profile, or the `default` one when the role has none — the
+ * project's default over the overall one, like any role.
+ */
 export async function resolveRole(
   providers: ProviderRepository, projectId: string, role: ProfileRole,
 ): Promise<Resolved> {
-  const profile = (await providers.listProfiles(projectId)).find((p) => p.role === role);
+  const profiles = await providers.listProfiles(projectId);
+  const profile = profiles.find((p) => p.role === role) ?? profiles.find((p) => p.role === 'default');
   if (!profile) throw new NoModelError(role);
   const account = (await providers.listAccounts()).find((a) => a.id === profile.providerAccountId);
   if (!account || !account.active) throw new NoModelError(role);
