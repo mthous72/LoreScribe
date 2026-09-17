@@ -23,6 +23,6 @@ test('asks for a draft model, and points at where to set one', async ({ page }) 
   await expect(panel.getByLabel('Beat to draft')).toContainText('no beat on this scene');
   await panel.getByRole('button', { name: 'Draft this beat' }).click();
   await expect(panel.getByRole('status')).toContainText('No draft model is set');
-  await panel.getByRole('link', { name: 'Providers →' }).click();
+  await panel.getByRole('link', { name: 'Settings →' }).click();
   await expect(page.getByTestId('key-protection')).toBeVisible();
 });

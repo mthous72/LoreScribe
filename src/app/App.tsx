@@ -58,6 +58,9 @@ function Shell() {
           <NavLink to="/" className={({ isActive }) => isActive ? 'font-medium' : 'opacity-60'}>
             Projects
           </NavLink>
+          <NavLink to="/settings" className={({ isActive }) => isActive ? 'font-medium' : 'opacity-60'}>
+            Settings
+          </NavLink>
           <NavLink to="/diagnostics" className={({ isActive }) => isActive ? 'font-medium' : 'opacity-60'}>
             Diagnostics
           </NavLink>
@@ -88,6 +91,10 @@ function Shell() {
           <Route path="/project/:projectId/facts" element={<FactsPage />} />
           <Route path="/project/:projectId/plan" element={<PlanPage />} />
           <Route path="/project/:projectId/import" element={<ImportPage />} />
+          {/* One page, two doors: the tab above for the key and the roles of
+              whichever project is picked, and the project's own link, which
+              fixes the project. */}
+          <Route path="/settings" element={<ProvidersPage />} />
           <Route path="/project/:projectId/providers" element={<ProvidersPage />} />
           <Route path="/project/:projectId/laws" element={<LawsPage />} />
           <Route

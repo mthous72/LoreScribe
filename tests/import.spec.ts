@@ -186,7 +186,7 @@ test('the model lane says what it needs when no extract model is set, and sends 
   await expect(lane).toContainText('1 file in 1 call');
   await lane.getByRole('button', { name: 'Let the model read them' }).click();
   await expect(page.getByRole('status')).toContainText('No extract model is set');
-  await expect(page.getByRole('status').getByRole('link', { name: 'Providers →' })).toBeVisible();
+  await expect(page.getByRole('status').getByRole('link', { name: 'Settings →' })).toBeVisible();
   expect(await query(page, 'SELECT COUNT(*) FROM ai_run')).toEqual([[0]]);
   expect(await query(page, 'SELECT COUNT(*) FROM proposal')).toEqual([[0]]);
 });

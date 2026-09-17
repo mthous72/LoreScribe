@@ -14,15 +14,20 @@ export function ProjectsPage() {
   // one place that loads and one place that invalidates.
   const [generation, setGeneration] = useState(0);
   const refresh = () => setGeneration((g) => g + 1);
+  /** Whether any provider account has a key saved on this device. Null until read. */
+  const [keyed, setKeyed] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (db.state !== 'ready') return;
     let cancelled = false;
     void (async () => {
-      const [list, count] = await Promise.all([db.projects.list(), db.projects.opLogCount()]);
+      const [list, count, accounts] = await Promise.all([
+        db.projects.list(), db.projects.opLogCount(), db.providers.listAccounts(),
+      ]);
       if (cancelled) return;
       setProjects(list);
       setOps(count);
+      setKeyed(accounts.some((a) => a.credentialRef));
     })();
     return () => { cancelled = true; };
   }, [db, generation]);
@@ -33,6 +38,14 @@ export function ProjectsPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <h1 className="text-xl font-semibold">Projects</h1>
+      {keyed === false && (
+        // The one thing a new writer cannot find by exploring a project: the
+        // key lives under Settings, and nothing drafts without it.
+        <p className="mt-3 text-sm opacity-80" data-testid="no-key-hint">
+          No model is connected yet. Add your OpenRouter key under{' '}
+          <Link to="/settings" className="underline">Settings</Link>, then choose which model drafts.
+        </p>
+      )}
 
       <form
         className="mt-6 flex flex-col gap-2 sm:flex-row"

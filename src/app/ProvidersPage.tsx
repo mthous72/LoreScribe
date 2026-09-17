@@ -5,7 +5,9 @@ import { OpenRouterAdapter } from '../ai/openrouter';
 import type { DataPolicy, ModelInfo } from '../ai/provider';
 import { explainProviderError as explain } from '../ai/explain';
 import type { ModelProfile, ProfileRole, ProviderAccount } from '../data/providerRepository';
+import type { Project } from '../data/projectRepository';
 import { usd, type SpendMeter } from '../domain/spend';
+import { filterModels, type ModelFilters } from '../ai/modelFilter';
 
 /**
  * Accounts, keys, and which model does which job.
@@ -35,6 +37,12 @@ import { usd, type SpendMeter } from '../domain/spend';
  * Two numbers per project, a warning and a stop, both per local day, both
  * editable here in full. The panel that hits the stop offers the doubling;
  * this is where a writer sets them on purpose.
+ *
+ * Reached two ways. The **Settings** tab in the top bar opens it with no
+ * project fixed — the key is not a project's, and the first thing a new
+ * writer needs is a place to put it before any book exists — and the roles
+ * and the spend then belong to whichever project is picked at the top, the
+ * most recent by default. A project's own link fixes the project.
  */
 
 const ROLES: { role: ProfileRole; what: string }[] = [
@@ -57,7 +65,10 @@ const money = (perMtok: number | null) =>
 
 export function ProvidersPage() {
   const db = useDb();
-  const { projectId = '' } = useParams();
+  const { projectId: routeProject } = useParams();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [picked, setPicked] = useState<string>('');
+  const projectId = routeProject ?? picked;
   const [accounts, setAccounts] = useState<ProviderAccount[]>([]);
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
   const [models, setModels] = useState<Record<string, ModelInfo[]>>({});
@@ -69,21 +80,44 @@ export function ProvidersPage() {
   const [key, setKey] = useState('');
   const [newKey, setNewKey] = useState<Record<string, string>>({});
   const [meter, setMeter] = useState<SpendMeter | null>(null);
-  const [caps, setCaps] = useState<{ warn: string; stop: string } | null>(null);
+  /** The inputs, and which project they were loaded for: a refresh must not overwrite what is being typed. */
+  const [caps, setCaps] = useState<{ forProject: string; warn: string; stop: string } | null>(null);
+  const [filters, setFilters] = useState<ModelFilters>({ free: false, uncensored: false });
 
+  // The key is not a project's: accounts load whether or not one is fixed.
+  useEffect(() => {
+    if (db.state !== 'ready') return;
+    let cancelled = false;
+    void (async () => {
+      const [a, list] = await Promise.all([
+        db.providers.listAccounts(), routeProject ? [] : db.projects.list(),
+      ]);
+      if (cancelled) return;
+      setAccounts(a);
+      if (!routeProject) {
+        setProjects(list);
+        // The most recent project, until the writer picks another.
+        setPicked((p) => (p && list.some((x) => x.id === p) ? p : list[0]?.id ?? ''));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [db, routeProject, generation]);
+
+  // The roles and the spend are a project's.
   useEffect(() => {
     if (db.state !== 'ready' || !projectId) return;
     let cancelled = false;
     void (async () => {
-      const [a, p, m] = await Promise.all([
-        db.providers.listAccounts(), db.providers.listProfiles(projectId), db.spend.meter(projectId),
-      ]);
+      const [p, m] = await Promise.all([db.providers.listProfiles(projectId), db.spend.meter(projectId)]);
       if (cancelled) return;
-      setAccounts(a);
       setProfiles(p);
       setMeter(m);
-      // The inputs follow the saved caps until the writer starts typing.
-      setCaps((c) => c ?? { warn: String(m.caps.warnUsd), stop: String(m.caps.stopUsd) });
+      // The inputs follow the saved caps for a newly picked project, and are
+      // otherwise left alone: a refetch after a save or a test must not undo
+      // what the writer is typing.
+      setCaps((c) => (c && c.forProject === projectId
+        ? c
+        : { forProject: projectId, warn: String(m.caps.warnUsd), stop: String(m.caps.stopUsd) }));
     })();
     return () => { cancelled = true; };
   }, [db, projectId, generation]);
@@ -173,19 +207,25 @@ export function ProvidersPage() {
     const saved = await db.spend.setCaps(projectId, {
       warnUsd: Number(caps.warn), stopUsd: Number(caps.stop),
     });
-    setCaps({ warn: String(saved.warnUsd), stop: String(saved.stopUsd) });
+    setCaps({ forProject: projectId, warn: String(saved.warnUsd), stop: String(saved.stopUsd) });
     return `This project now warns at ${usd(saved.warnUsd)} and stops at ${usd(saved.stopUsd)} a day.`;
   });
 
   const tested = accounts.filter((a) => models[a.id]?.length);
+  const offered = Object.fromEntries(tested.map((a) => [a.id, filterModels(models[a.id] ?? [], filters)]));
+  const totalModels = tested.reduce((n, a) => n + (models[a.id]?.length ?? 0), 0);
+  const shownModels = tested.reduce((n, a) => n + (offered[a.id]?.length ?? 0), 0);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
-      <Link to={`/project/${projectId}`} className="text-xs underline opacity-60">← Manuscript</Link>
-      <h1 className="mt-4 text-xl font-semibold">Providers</h1>
+      {routeProject && (
+        <Link to={`/project/${routeProject}`} className="text-xs underline opacity-60">← Manuscript</Link>
+      )}
+      <h1 className={`${routeProject ? 'mt-4 ' : ''}text-xl font-semibold`}>Settings</h1>
       <p className="mt-2 text-sm opacity-70">
         Your own OpenRouter key, called directly from this browser. Nothing goes
-        through a server of ours, because there is not one.
+        through a server of ours, because there is not one. Then which model does
+        which job, and how much a day may cost, for each project.
       </p>
 
       <section className="mt-6 rounded-lg border border-current/15 p-3 text-xs leading-relaxed opacity-80"
@@ -299,93 +339,128 @@ export function ProvidersPage() {
         </button>
       </div>
 
-      <h2 className="mt-10 text-xs font-semibold uppercase tracking-wide opacity-50">Which model does which job</h2>
-      {tested.length === 0 ? (
-        <p className="mt-2 text-sm opacity-60">
-          Test a key first, and its models will be offered here. Drafting deserves a strong
-          model; the other jobs fire far more often and are fine on a cheap one.
-        </p>
-      ) : (
-        <table className="mt-2 w-full text-sm" data-testid="roles">
-          <tbody>
-            {ROLES.map(({ role, what }) => {
-              const current = profiles.find((p) => p.role === role);
-              return (
-                <tr key={role} data-role={role} className="align-baseline">
-                  <th scope="row" className="py-1.5 pr-3 text-left font-medium">{role}</th>
-                  <td className="py-1.5 pr-3 text-xs opacity-60">{what}</td>
-                  <td className="py-1.5">
-                    <select
-                      aria-label={`Model for ${role}`}
-                      value={current?.modelId ?? ''}
-                      disabled={busy}
-                      onChange={(e) => {
-                        const [accountId, ...rest] = e.target.value.split('|');
-                        const account = accounts.find((a) => a.id === accountId);
-                        if (account) choose(role, account, rest.join('|'));
-                      }}
-                      className="max-w-[20rem] rounded border border-current/20 bg-transparent px-1 py-0.5
-                                 text-xs">
-                      <option value="">{current ? `${current.modelId} (kept)` : 'choose a model…'}</option>
-                      {tested.flatMap((a) => (models[a.id] ?? []).map((m) => (
-                        <option key={`${a.id}|${m.id}`} value={`${a.id}|${m.id}`}>
-                          {m.name} · {(m.contextWindow / 1000).toFixed(0)}k
-                          {m.costInPerMtok !== null ? ` · ${money(m.costInPerMtok)} in, ${money(m.costOutPerMtok)} out` : ''}
-                          {m.moderated ? ' · moderated' : ''}
-                        </option>
-                      )))}
-                    </select>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      <h2 id="spend" className="mt-10 text-xs font-semibold uppercase tracking-wide opacity-50">Spend</h2>
-      {meter && (
-        <p className="mt-2 text-sm" data-testid="spend-today" data-level={meter.level}>
-          <strong>{usd(meter.todayUsd)}</strong> spent on this project today
-          {meter.unpricedRuns > 0 && (
-            <>, not counting {meter.unpricedRuns} {meter.unpricedRuns === 1 ? 'run' : 'runs'} whose model had no price</>
-          )}
-          .
-          {meter.level === 'stop' && ' Drafting is stopped until the stop is raised or the day turns.'}
-          {meter.level === 'warn' && ' That is past the warning.'}
-        </p>
-      )}
-      <p className="mt-1 text-xs opacity-60">
-        Per local day, per project. A guard against a loop or a runaway batch, not a budget: raise
-        it the first time it gets in the way of real work.
-      </p>
-      {caps && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-          <label htmlFor="cap-warn" className="opacity-70">Warn at $</label>
-          <input
-            id="cap-warn"
-            inputMode="decimal"
-            value={caps.warn}
-            onChange={(e) => setCaps({ ...caps, warn: e.target.value })}
-            className="w-20 rounded-lg border border-current/20 bg-transparent px-2 py-1"
-          />
-          <label htmlFor="cap-stop" className="opacity-70">Stop at $</label>
-          <input
-            id="cap-stop"
-            inputMode="decimal"
-            value={caps.stop}
-            onChange={(e) => setCaps({ ...caps, stop: e.target.value })}
-            className="w-20 rounded-lg border border-current/20 bg-transparent px-2 py-1"
-          />
-          <button
-            disabled={busy}
-            onClick={saveCaps}
-            className="rounded-lg border border-current/20 bg-current/10 px-3 py-1.5 text-sm
-                       font-medium disabled:opacity-50">
-            Save the caps
-          </button>
+      {!routeProject && (
+        <div className="mt-10 flex flex-wrap items-center gap-2 text-sm" data-testid="project-picker">
+          <label htmlFor="settings-project" className="opacity-70">For the project</label>
+          {projects.length === 0
+            ? <span className="opacity-60">— none yet. Create one on the Projects page; the key above is already kept.</span>
+            : (
+              <select
+                id="settings-project" value={picked} onChange={(e) => setPicked(e.target.value)}
+                className="rounded-lg border border-current/20 bg-transparent px-2 py-1">
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+              </select>
+            )}
         </div>
       )}
+
+      {projectId && (<>
+        <h2 className="mt-10 text-xs font-semibold uppercase tracking-wide opacity-50">Which model does which job</h2>
+        {tested.length === 0 ? (
+          <p className="mt-2 text-sm opacity-60">
+            Test a key first, and its models will be offered here. Drafting deserves a strong
+            model; the other jobs fire far more often and are fine on a cheap one.
+          </p>
+        ) : (
+          <>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" data-testid="model-filters">
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={filters.free}
+                  onChange={(e) => setFilters((f) => ({ ...f, free: e.target.checked }))} />
+                Free only
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={filters.uncensored}
+                  onChange={(e) => setFilters((f) => ({ ...f, uncensored: e.target.checked }))} />
+                Uncensored only
+                <span className="opacity-50">— no provider-side moderation; the model may still decline</span>
+              </label>
+              <span className="opacity-50 tabular-nums" data-testid="model-count">
+                {shownModels === totalModels ? `${totalModels} models` : `${shownModels} of ${totalModels} models`}
+              </span>
+            </div>
+            <table className="mt-2 w-full text-sm" data-testid="roles">
+              <tbody>
+                {ROLES.map(({ role, what }) => {
+                  const current = profiles.find((p) => p.role === role);
+                  return (
+                    <tr key={role} data-role={role} className="align-baseline">
+                      <th scope="row" className="py-1.5 pr-3 text-left font-medium">{role}</th>
+                      <td className="py-1.5 pr-3 text-xs opacity-60">{what}</td>
+                      <td className="py-1.5">
+                        <select
+                          aria-label={`Model for ${role}`}
+                          value={current?.modelId ?? ''}
+                          disabled={busy}
+                          onChange={(e) => {
+                            const [accountId, ...rest] = e.target.value.split('|');
+                            const account = accounts.find((a) => a.id === accountId);
+                            if (account) choose(role, account, rest.join('|'));
+                          }}
+                          className="max-w-[20rem] rounded border border-current/20 bg-transparent px-1 py-0.5
+                                 text-xs">
+                          <option value="">{current ? `${current.modelId} (kept)` : 'choose a model…'}</option>
+                          {tested.flatMap((a) => (offered[a.id] ?? []).map((m) => (
+                            <option key={`${a.id}|${m.id}`} value={`${a.id}|${m.id}`}>
+                              {m.name} · {(m.contextWindow / 1000).toFixed(0)}k
+                              {m.costInPerMtok !== null ? ` · ${money(m.costInPerMtok)} in, ${money(m.costOutPerMtok)} out` : ''}
+                              {m.moderated ? ' · moderated' : ''}
+                            </option>
+                          )))}
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        <h2 id="spend" className="mt-10 text-xs font-semibold uppercase tracking-wide opacity-50">Spend</h2>
+        {meter && (
+          <p className="mt-2 text-sm" data-testid="spend-today" data-level={meter.level}>
+            <strong>{usd(meter.todayUsd)}</strong> spent on this project today
+            {meter.unpricedRuns > 0 && (
+              <>, not counting {meter.unpricedRuns} {meter.unpricedRuns === 1 ? 'run' : 'runs'} whose model had no price</>
+            )}
+            .
+            {meter.level === 'stop' && ' Drafting is stopped until the stop is raised or the day turns.'}
+            {meter.level === 'warn' && ' That is past the warning.'}
+          </p>
+        )}
+        <p className="mt-1 text-xs opacity-60">
+          Per local day, per project. A guard against a loop or a runaway batch, not a budget: raise
+          it the first time it gets in the way of real work.
+        </p>
+        {caps && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <label htmlFor="cap-warn" className="opacity-70">Warn at $</label>
+            <input
+              id="cap-warn"
+              inputMode="decimal"
+              value={caps.warn}
+              onChange={(e) => setCaps({ ...caps, warn: e.target.value })}
+              className="w-20 rounded-lg border border-current/20 bg-transparent px-2 py-1"
+            />
+            <label htmlFor="cap-stop" className="opacity-70">Stop at $</label>
+            <input
+              id="cap-stop"
+              inputMode="decimal"
+              value={caps.stop}
+              onChange={(e) => setCaps({ ...caps, stop: e.target.value })}
+              className="w-20 rounded-lg border border-current/20 bg-transparent px-2 py-1"
+            />
+            <button
+              disabled={busy}
+              onClick={saveCaps}
+              className="rounded-lg border border-current/20 bg-current/10 px-3 py-1.5 text-sm
+                       font-medium disabled:opacity-50">
+              Save the caps
+            </button>
+          </div>
+        )}
+      </>)}
     </div>
   );
 }
