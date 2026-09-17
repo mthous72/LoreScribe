@@ -269,7 +269,7 @@ export class BriefRepository {
   async #laws(projectId: string): Promise<LawRow[]> {
     const rows = await this.#all(
       `SELECT id, scope_type, scope_id, category, severity, title, rule_text,
-              examples_good, examples_bad, is_system, active, sort_key
+              examples_good, examples_bad, is_system, active, sort_key, check_mode, check_config
        FROM law WHERE project_id = ? AND deleted_at IS NULL`, [projectId]);
     return rows.map((r) => ({
       id: r[0] as string, scopeType: r[1] as LawScope, scopeId: r[2] as string | null,
@@ -277,6 +277,7 @@ export class BriefRepository {
       ruleText: r[6] as string, examplesGood: r[7] as string | null,
       examplesBad: r[8] as string | null, isSystem: Number(r[9]) !== 0,
       active: Number(r[10]) !== 0, sortKey: r[11] as string | null,
+      checkMode: r[12] as string | null, checkConfig: r[13] as string | null,
     }));
   }
 

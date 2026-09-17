@@ -6,8 +6,15 @@ import { RunsRepository } from '../data/runsRepository';
 import { ProviderRepository } from '../data/providerRepository';
 import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { VersionsRepository } from '../data/versionsRepository';
+import { SpendRepository } from '../data/spendRepository';
+import { ViolationsRepository } from '../data/violationsRepository';
+import { LawsRepository } from '../data/lawsRepository';
+import { Verifier } from './verify';
+import type { Finding } from '../domain/verify';
 import { EncryptedCredentialStore, MemoryVault } from './credentials';
-import { Drafter, NoDraftModelError, appendParagraphs, renderDraftPrompt, type DraftEvent } from './draft';
+import {
+  Drafter, NoDraftModelError, SpendCapError, appendParagraphs, renderDraftPrompt, type DraftEvent,
+} from './draft';
 import { ProviderError, type ChatDelta, type ChatRequest, type ProviderAdapter } from './provider';
 
 /**
@@ -30,6 +37,8 @@ let providers: ProviderRepository;
 let runs: RunsRepository;
 let versions: VersionsRepository;
 let plan: PlanRepository;
+let spend: SpendRepository;
+let violations: ViolationsRepository;
 let sceneId: string;
 let beatId: string;
 let profileId: string;
@@ -76,6 +85,8 @@ beforeEach(async () => {
   runs = new RunsRepository(driver);
   versions = new VersionsRepository(driver, manuscript);
   plan = new PlanRepository(driver);
+  spend = new SpendRepository(driver, runs);
+  violations = new ViolationsRepository(driver);
   await driver.query('INSERT INTO project (id, title, created_at, updated_at) VALUES (?, ?, 1, 1)', [P, 'P'], 'run');
   const book = await manuscript.createBook(P, 'Book');
   const chapter = await manuscript.createChapter(book.id, 'One');
@@ -96,13 +107,18 @@ beforeEach(async () => {
   profileId = profile.id;
 });
 
-async function drafter(adapter: ProviderAdapter, withKey = true) {
+async function drafter(
+  adapter: ProviderAdapter, withKey = true, critique: ProviderAdapter = fake(['[]' as never]).adapter,
+) {
   const credentials = new EncryptedCredentialStore(new MemoryVault());
   const [account] = await providers.listAccounts();
   if (withKey) await credentials.save(account!.id, 'sk-or-v1-fake');
+  const verifier = new Verifier({
+    runs, providers, credentials, violations, spend, adapterFor: () => critique,
+  });
   return new Drafter({
-    brief: new BriefRepository(driver), plan, runs, providers, credentials, manuscript, versions,
-    adapterFor: () => adapter,
+    brief: new BriefRepository(driver), plan, runs, providers, credentials, manuscript, versions, spend,
+    verifier, adapterFor: () => adapter,
   });
 }
 
@@ -151,6 +167,59 @@ describe('the request', () => {
   it('refuses without a saved key', async () => {
     const d = await drafter(fake([]).adapter, false);
     await expect(collect(d, null)).rejects.toThrow(/No key is saved/);
+  });
+});
+
+describe('the spend cap', () => {
+  /** A priced run earlier today. */
+  async function spent(costUsd: number) {
+    const id = await runs.start(P, {
+      sceneId, purpose: 'draft_beat', provider: 'openrouter', model: 'm', params: {}, briefJson: '{}', promptRendered: '',
+    });
+    await runs.finish(id, {
+      outputText: 'x', tokensIn: 1, tokensOut: 1, tokensReasoning: 0, costUsd, latencyMs: 1, status: 'ok', servedBy: null,
+    });
+  }
+
+  it('refuses before the call once today has reached the stop, and records the refusal', async () => {
+    await spent(12);
+    await spent(8);
+    const { adapter, asked } = fake([text('never'), ...finished()]);
+    const d = await drafter(adapter);
+    const failure = await collect(d, beatId).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(SpendCapError);
+    expect((failure as SpendCapError).meter).toMatchObject({ todayUsd: 20, level: 'stop' });
+    expect((failure as Error).message).toContain('$20.00 spent today');
+    expect((failure as Error).message).toContain('$20.00 daily stop');
+    expect(asked).toHaveLength(0);
+
+    const [blocked] = await runs.list(P, sceneId);
+    expect(blocked).toMatchObject({ status: 'blocked', costUsd: null, purpose: 'draft_beat' });
+    expect(blocked?.blockReason).toContain('daily stop');
+    // The refusal is not itself spend: the meter reads the same after it.
+    expect((await spend.meter(P)).todayUsd).toBeCloseTo(20);
+  });
+
+  it('comes before the model lookup, so a project with no model is still told about its spend', async () => {
+    await driver.query('DELETE FROM model_profile', [], 'run');
+    await spent(25);
+    await expect(collect(await drafter(fake([]).adapter), null)).rejects.toBeInstanceOf(SpendCapError);
+  });
+
+  it('continues past the warning, and honours a raised stop', async () => {
+    await spent(19.99);
+    const { adapter, asked } = fake([text('Still writing.'), ...finished()]);
+    const d = await drafter(adapter);
+    expect((await spend.meter(P)).level).toBe('warn');
+    await collect(d, beatId);
+    expect(asked).toHaveLength(1);
+
+    // That run crossed the line; the next is refused until the stop moves.
+    await spent(0.5);
+    await expect(collect(d, beatId)).rejects.toBeInstanceOf(SpendCapError);
+    await spend.setCaps(P, { warnUsd: 5, stopUsd: 40 });
+    await collect(d, beatId);
+    expect(asked).toHaveLength(2);
   });
 });
 
@@ -227,6 +296,104 @@ describe('the stream', () => {
       { kind: 'done', finishReason: 'length', servedBy: null }]);
     const events = await collect(await drafter(adapter), beatId);
     expect((events.find((e) => e.kind === 'done') as { status: string }).status).toBe('truncated');
+  });
+});
+
+describe('the verdict', () => {
+  it('follows done, carries the free checks, and says when the rubric laws had no model', async () => {
+    const laws = new LawsRepository(driver);
+    await laws.create(P, {
+      title: 'No suddenly', ruleText: 'Never write "suddenly".', category: 'style',
+      checkMode: 'regex', checkConfig: JSON.stringify({ pattern: '\\bsuddenly\\b', fix: 'Cut it.' }),
+    });
+    await laws.create(P, { title: 'No weather', ruleText: 'Do not open on weather.', category: 'style', checkMode: 'rubric' });
+    const { adapter } = fake([text('Suddenly the clerk looked up. '), text('Then suddenly away.'), ...finished()]);
+    const events = await collect(await drafter(adapter), beatId);
+    expect(events.map((e) => e.kind).slice(-2)).toEqual(['done', 'verdict']);
+    const { verdict } = events.at(-1) as Extract<DraftEvent, { kind: 'verdict' }>;
+    expect(verdict.findings.map((f: Finding) => [f.lawTitle, f.quote, f.suggestedFix]))
+      .toEqual([['No suddenly', 'Suddenly', 'Cut it.'], ['No suddenly', 'suddenly', 'Cut it.']]);
+    expect(verdict.rubric).toMatchObject({ state: 'no-model', laws: 1 });
+    expect(verdict.rubric.detail).toContain('No critique model');
+    // Stored against the draft run.
+    const done = events.find((e) => e.kind === 'done') as Extract<DraftEvent, { kind: 'done' }>;
+    expect((await violations.listForRun(done.runId)).map((v) => v.start)).toEqual([0, 35]);
+  });
+
+  it('runs the rubric laws through the critique model, verifying every quote', async () => {
+    const laws = new LawsRepository(driver);
+    const law = await laws.create(P, {
+      title: 'No adverb tags', ruleText: 'No adverbs on dialogue tags.', category: 'style', checkMode: 'prompt+rubric',
+    });
+    const [account] = await providers.listAccounts();
+    await providers.setProfile(P, 'critique', {
+      providerAccountId: account!.id, modelId: 'fake/cheap', costInPerMtok: 0.1, costOutPerMtok: 0.4,
+    });
+    const critique = fake((req) => {
+      expect(req.model).toBe('fake/cheap');
+      expect(req.messages[0]?.content).toContain('1. No adverb tags: No adverbs on dialogue tags.');
+      expect(req.messages[0]?.content).toContain('PASSAGE\n"Go," he said quietly.');
+      return [
+        text('[{"law":1,"quote":"he said quietly","why":"Quietly.","fix":"Cut it."},'),
+        text('{"law":1,"quote":"she whispered softly","why":"Invented.","fix":""}]'),
+        { kind: 'usage', promptTokens: 500, completionTokens: 60, reasoningTokens: 0 },
+        { kind: 'done', finishReason: 'stop', servedBy: 'Cheap' },
+      ];
+    });
+    const { adapter } = fake([text('"Go," he said quietly. The door closed.'), ...finished()]);
+    const events = await collect(await drafter(adapter, true, critique.adapter), beatId);
+    const { verdict } = events.at(-1) as Extract<DraftEvent, { kind: 'verdict' }>;
+    expect(verdict.rubric.state).toBe('ran');
+    expect(verdict.rubric.costUsd).toBeCloseTo((500 * 0.1 + 60 * 0.4) / 1_000_000);
+    expect(verdict.findings).toHaveLength(1);
+    expect(verdict.findings[0]).toMatchObject({ lawId: law.id, quote: 'he said quietly', start: 6, end: 21, source: 'rubric' });
+    expect(verdict.uncertain.map((u: Finding) => u.quote)).toEqual(['she whispered softly']);
+
+    const critiqueRun = (await runs.list(P, sceneId)).find((r) => r.purpose === 'critique');
+    expect(critiqueRun).toMatchObject({ model: 'fake/cheap', status: 'ok', servedBy: 'Cheap' });
+    const done = events.find((e) => e.kind === 'done') as Extract<DraftEvent, { kind: 'done' }>;
+    const rows = await violations.listForRun(done.runId);
+    expect(rows.map((r) => [r.evidenceVerified, r.quote])).toEqual([[true, 'he said quietly'], [false, 'she whispered softly']]);
+  });
+
+  it('spends nothing on critique when the writer stopped the draft, and none when there is no rubric law', async () => {
+    await new LawsRepository(driver).create(P, { title: 'r', ruleText: 'r', category: 'style', checkMode: 'rubric' });
+    const critique = fake([text('[]'), ...finished()]);
+    const ctl = new AbortController();
+    const { adapter } = fake([text('First sentence. '), text('Second.'), ...finished()]);
+    const d = await drafter(adapter, true, critique.adapter);
+    const events: DraftEvent[] = [];
+    for await (const ev of d.draft({ projectId: P, sceneId, beatId, targetWords: 300 }, ctl.signal)) {
+      events.push(ev);
+      if (ev.kind === 'text') ctl.abort();
+    }
+    expect((events.at(-1) as Extract<DraftEvent, { kind: 'verdict' }>).verdict.rubric.state).toBe('cancelled');
+    expect(critique.asked).toHaveLength(0);
+
+    await driver.query('DELETE FROM law', [], 'run');
+    const again = await collect(d, beatId);
+    expect((again.at(-1) as Extract<DraftEvent, { kind: 'verdict' }>).verdict.rubric).toMatchObject({ state: 'no-laws', laws: 0 });
+  });
+
+  it('reports a verifier failure in the verdict rather than losing the draft', async () => {
+    const broken = new Verifier({
+      runs, providers, credentials: new EncryptedCredentialStore(new MemoryVault()),
+      violations: { record: async () => { throw new Error('disk gone'); } } as unknown as ViolationsRepository,
+      spend,
+    });
+    const credentials = new EncryptedCredentialStore(new MemoryVault());
+    const [account] = await providers.listAccounts();
+    await credentials.save(account!.id, 'sk-or-v1-fake');
+    const { adapter } = fake([text('Fine prose.'), ...finished()]);
+    const d = new Drafter({
+      brief: new BriefRepository(driver), plan, runs, providers, credentials, manuscript, versions, spend,
+      verifier: broken, adapterFor: () => adapter,
+    });
+    const events = await collect(d, beatId);
+    expect((events.find((e) => e.kind === 'done') as { output: string }).output).toBe('Fine prose.');
+    expect((events.at(-1) as Extract<DraftEvent, { kind: 'verdict' }>).verdict.rubric).toMatchObject({
+      state: 'failed', detail: 'disk gone',
+    });
   });
 });
 

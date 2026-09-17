@@ -100,6 +100,7 @@ const ladder = (over: Partial<Ladder> = {}): Ladder => ({
 const law = (id: string, severity: Severity, over: Partial<BriefLaw> = {}): BriefLaw => ({
   id, scopeType: 'project', category: 'style', severity,
   title: id, ruleText: `Rule ${id}.`, examplesGood: null, examplesBad: null, isSystem: false,
+  checkMode: 'prompt', checkConfig: null,
   ...over,
 });
 

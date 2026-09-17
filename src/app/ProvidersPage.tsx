@@ -5,6 +5,7 @@ import { OpenRouterAdapter } from '../ai/openrouter';
 import type { DataPolicy, ModelInfo } from '../ai/provider';
 import { explainProviderError as explain } from '../ai/explain';
 import type { ModelProfile, ProfileRole, ProviderAccount } from '../data/providerRepository';
+import { usd, type SpendMeter } from '../domain/spend';
 
 /**
  * Accounts, keys, and which model does which job.
@@ -29,6 +30,11 @@ import type { ModelProfile, ProfileRole, ProviderAccount } from '../data/provide
  * than buried in a settings list. The model's window and prices are copied
  * onto the profile when it is chosen: the budget needs the window before a
  * call, and the number a run was costed against is the number kept.
+ *
+ * **What today has cost, and where it stops** ([D17](../../docs/10-decisions.md)).
+ * Two numbers per project, a warning and a stop, both per local day, both
+ * editable here in full. The panel that hits the stop offers the doubling;
+ * this is where a writer sets them on purpose.
  */
 
 const ROLES: { role: ProfileRole; what: string }[] = [
@@ -62,15 +68,22 @@ export function ProvidersPage() {
   const [label, setLabel] = useState('');
   const [key, setKey] = useState('');
   const [newKey, setNewKey] = useState<Record<string, string>>({});
+  const [meter, setMeter] = useState<SpendMeter | null>(null);
+  const [caps, setCaps] = useState<{ warn: string; stop: string } | null>(null);
 
   useEffect(() => {
     if (db.state !== 'ready' || !projectId) return;
     let cancelled = false;
     void (async () => {
-      const [a, p] = await Promise.all([db.providers.listAccounts(), db.providers.listProfiles(projectId)]);
+      const [a, p, m] = await Promise.all([
+        db.providers.listAccounts(), db.providers.listProfiles(projectId), db.spend.meter(projectId),
+      ]);
       if (cancelled) return;
       setAccounts(a);
       setProfiles(p);
+      setMeter(m);
+      // The inputs follow the saved caps until the writer starts typing.
+      setCaps((c) => c ?? { warn: String(m.caps.warnUsd), stop: String(m.caps.stopUsd) });
     })();
     return () => { cancelled = true; };
   }, [db, projectId, generation]);
@@ -153,6 +166,15 @@ export function ProvidersPage() {
       costOutPerMtok: model?.costOutPerMtok ?? null,
     });
     return `${role}: ${model?.name ?? modelId}.`;
+  });
+
+  const saveCaps = () => void act(async () => {
+    if (!caps) return;
+    const saved = await db.spend.setCaps(projectId, {
+      warnUsd: Number(caps.warn), stopUsd: Number(caps.stop),
+    });
+    setCaps({ warn: String(saved.warnUsd), stop: String(saved.stopUsd) });
+    return `This project now warns at ${usd(saved.warnUsd)} and stops at ${usd(saved.stopUsd)} a day.`;
   });
 
   const tested = accounts.filter((a) => models[a.id]?.length);
@@ -319,6 +341,50 @@ export function ProvidersPage() {
             })}
           </tbody>
         </table>
+      )}
+
+      <h2 id="spend" className="mt-10 text-xs font-semibold uppercase tracking-wide opacity-50">Spend</h2>
+      {meter && (
+        <p className="mt-2 text-sm" data-testid="spend-today" data-level={meter.level}>
+          <strong>{usd(meter.todayUsd)}</strong> spent on this project today
+          {meter.unpricedRuns > 0 && (
+            <>, not counting {meter.unpricedRuns} {meter.unpricedRuns === 1 ? 'run' : 'runs'} whose model had no price</>
+          )}
+          .
+          {meter.level === 'stop' && ' Drafting is stopped until the stop is raised or the day turns.'}
+          {meter.level === 'warn' && ' That is past the warning.'}
+        </p>
+      )}
+      <p className="mt-1 text-xs opacity-60">
+        Per local day, per project. A guard against a loop or a runaway batch, not a budget: raise
+        it the first time it gets in the way of real work.
+      </p>
+      {caps && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor="cap-warn" className="opacity-70">Warn at $</label>
+          <input
+            id="cap-warn"
+            inputMode="decimal"
+            value={caps.warn}
+            onChange={(e) => setCaps({ ...caps, warn: e.target.value })}
+            className="w-20 rounded-lg border border-current/20 bg-transparent px-2 py-1"
+          />
+          <label htmlFor="cap-stop" className="opacity-70">Stop at $</label>
+          <input
+            id="cap-stop"
+            inputMode="decimal"
+            value={caps.stop}
+            onChange={(e) => setCaps({ ...caps, stop: e.target.value })}
+            className="w-20 rounded-lg border border-current/20 bg-transparent px-2 py-1"
+          />
+          <button
+            disabled={busy}
+            onClick={saveCaps}
+            className="rounded-lg border border-current/20 bg-current/10 px-3 py-1.5 text-sm
+                       font-medium disabled:opacity-50">
+            Save the caps
+          </button>
+        </div>
       )}
     </div>
   );

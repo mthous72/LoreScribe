@@ -7,8 +7,14 @@ import {
   suggestAll, nameKey, type Destination, type LawCategory, type SuggestContext,
 } from '../import/plan';
 import {
-  decisionKey, type Decisions, type ImportRun, type ProposalRow,
+  EDITABLE, decisionKey, type Decisions, type ImportRun, type ProposalRow,
 } from '../data/importRepository';
+import type { ExtractEvent } from '../ai/extract';
+import type { ExtractTypes } from '../domain/extract';
+import { NoModelError, SpendCapError } from '../ai/roles';
+import { explainProviderError } from '../ai/explain';
+import { usd } from '../domain/spend';
+import type { EntityType } from '../data/codexRepository';
 
 /**
  * Bringing a story bible in.
@@ -23,9 +29,19 @@ import {
  * says so and does nothing. A writer who disagrees with a row changes one
  * dropdown; a writer who disagrees with the whole thing loses nothing, because
  * a run that is never applied wrote nothing but proposals.
+ *
+ * Two lanes feed the same review. The rules are free and legible and remain
+ * the default. **The model** — the `extract` role, the cheap one — reads the
+ * files and proposes who is in them, what is true, and what the writer's rules
+ * are, each with the words it read; a proposal it cannot trace to the file is
+ * shown as that and never accepted for the writer. Either lane's proposal can
+ * be edited before it is applied, because a wrong type is one field, not a
+ * reason to start again by hand.
  */
 
 type Step = 'choose' | 'map' | 'review' | 'done';
+type Progress = { total: number; done: number; label: string; found: number; tokens: number };
+type Finished = Extract<ExtractEvent, { kind: 'done' }>;
 
 const DESTINATIONS = (types: string[]): { value: string; text: string }[] => [
   { value: 'skip', text: 'Skip — do nothing with it' },
@@ -65,6 +81,12 @@ export function ImportPage() {
   const [note, setNote] = useState<string | null>(null);
   const [failures, setFailures] = useState<{ proposalId: string; reason: string }[]>([]);
   const [generation, setGeneration] = useState(0);
+  const [types, setTypes] = useState<EntityType[]>([]);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [finished, setFinished] = useState<Finished | null>(null);
+  const [needsModel, setNeedsModel] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const abort = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
 
@@ -81,6 +103,7 @@ export function ImportPage() {
       const existing = new Map(entities.map((e) =>
         [nameKey(e.name), { id: e.id, name: e.name, typeKey: e.typeKey }]));
       setContext({ existing, types: new Set(types.map((t) => t.key)) });
+      setTypes(types);
       setRuns(previous);
     })();
     return () => { cancelled = true; };
@@ -94,6 +117,58 @@ export function ImportPage() {
   const chosen = useCallback((docPath: string, nodeId: string, fallback: Destination) =>
     decisions[decisionKey(docPath, nodeId)] ?? fallback, [decisions]);
 
+  // A read in flight belongs to this screen.
+  useEffect(() => () => abort.current?.abort(), []);
+
+  const refresh = useCallback(async (id: string) => {
+    if (db.state !== 'ready') return;
+    setProposals(await db.imports.listProposals(id));
+  }, [db]);
+
+  /** The extract role reads every file; what it finds lands in the same review. */
+  const askModel = useCallback(async () => {
+    if (db.state !== 'ready' || !read || !context) return;
+    const ctl = new AbortController();
+    abort.current = ctl;
+    setBusy(true);
+    setNote(null);
+    setNeedsModel(false);
+    setFinished(null);
+    const forModel: ExtractTypes = {
+      types: types.filter((t) => context.types.has(t.key)).map((t) => ({ key: t.key, label: t.label })),
+      existing: context.existing,
+    };
+    try {
+      for await (const ev of db.extractor.extract(projectId, read.docs, forModel, ctl.signal)) {
+        if (ev.kind === 'plan') {
+          setProgress({ total: ev.chunks, done: 0, label: '', found: 0, tokens: ev.tokens });
+        } else if (ev.kind === 'chunk') {
+          setProgress((p) => p && {
+            ...p, done: ev.index + 1, label: ev.label, found: p.found + ev.proposals,
+          });
+        } else {
+          setFinished(ev);
+          if (ev.runId) {
+            setRunId(ev.runId);
+            await refresh(ev.runId);
+            setStep('review');
+          } else {
+            setNote('The model proposed nothing it could point to in these files.');
+          }
+        }
+      }
+    } catch (e) {
+      if (e instanceof NoModelError) { setNeedsModel(true); setNote(e.message); }
+      else if (e instanceof SpendCapError) setNote(e.message);
+      else setNote(explainProviderError(e));
+    } finally {
+      setBusy(false);
+      setProgress(null);
+      abort.current = null;
+      setGeneration((g) => g + 1);
+    }
+  }, [db, projectId, read, context, types, refresh]);
+
   const take = useCallback(async (files: FileList | null) => {
     if (!files?.length) return;
     setBusy(true);
@@ -102,6 +177,7 @@ export function ImportPage() {
       setRead(result);
       setDecisions({});
       setStep('map');
+      setFinished(null);
       setNote(result.docs.length
         ? null
         : 'Nothing in that selection could be read. Markdown, text, Word, JSON and CSV.');
@@ -163,6 +239,7 @@ export function ImportPage() {
   if (db.state !== 'ready') return null;
 
   const accepted = proposals.filter((p) => p.status === 'accepted');
+  const unverified = proposals.filter((p) => p.status === 'pending' && !p.evidenceVerified);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -176,7 +253,17 @@ export function ImportPage() {
         afterwards.
       </p>
 
-      {note && <p aria-live="polite" className="mt-3 text-sm opacity-80">{note}</p>}
+      {note && (
+        <p aria-live="polite" role="status" className="mt-3 text-sm opacity-80">
+          {note}
+          {needsModel && (
+            <>
+              {' '}
+              <Link to={`/project/${projectId}/providers`} className="underline">Providers →</Link>
+            </>
+          )}
+        </p>
+      )}
 
       {step === 'choose' && (
         <div className="mt-5 flex flex-wrap gap-3">
@@ -268,6 +355,38 @@ export function ImportPage() {
             ))}
           </ol>
 
+          <section className="mt-6 rounded-lg border border-current/15 p-3" data-testid="ask-model">
+            <h2 className="text-xs font-semibold uppercase tracking-wide opacity-50">Or let the model read them</h2>
+            <p className="mt-1 text-xs opacity-70">
+              The extract model reads each file and proposes the people, places, facts and rules in it,
+              quoting the words it read. Anything it cannot point to in the file is shown as such and
+              left for you to decide. {planLine(read, db.extractor.plan(read.docs).length)}
+            </p>
+            {progress && (
+              <p className="mt-2 text-xs" data-testid="extract-progress" aria-live="polite">
+                Reading {progress.done} of {progress.total}
+                {progress.label ? ` — ${progress.label}` : ''} · {progress.found} found so far
+              </p>
+            )}
+            <div className="mt-2 flex flex-wrap gap-3">
+              {progress
+                ? (
+                  <button onClick={() => abort.current?.abort()}
+                    className="rounded-lg border border-current/20 px-4 py-2 text-sm">
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    disabled={busy}
+                    onClick={() => void askModel()}
+                    className="rounded-lg border border-current/20 bg-current/10 px-4 py-2 text-sm
+                               font-medium disabled:opacity-50">
+                    Let the model read them
+                  </button>
+                )}
+            </div>
+          </section>
+
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               disabled={busy}
@@ -291,27 +410,90 @@ export function ImportPage() {
           <p className="mt-5 text-sm">
             <strong>{accepted.length}</strong> change
             {accepted.length === 1 ? '' : 's'} ready. Nothing has been written yet.
+            {unverified.length > 0 && (
+              <> {unverified.length} more could not be traced to the files and {unverified.length === 1 ? 'waits' : 'wait'} for you.</>
+            )}
           </p>
+          {finished && <ModelSummary finished={finished} />}
           <ul className="mt-3 space-y-1 text-sm">
             {proposals.map((p) => (
               <li
                 key={p.id}
                 data-proposal={p.targetTable}
-                className={`flex flex-wrap items-center gap-2 rounded-lg px-2 py-1
-                            ${p.status === 'rejected' ? 'opacity-40' : ''}`}>
-                <span className="shrink-0 text-xs uppercase tracking-wide opacity-50">
-                  {p.targetTable.replace('_', ' ')}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{describe(p)}</span>
-                <button
-                  onClick={() => void (async () => {
-                    const next = p.status === 'rejected' ? 'accepted' : 'rejected';
-                    await db.imports.setStatus([p.id], next);
-                    setProposals(await db.imports.listProposals(p.runId));
-                  })()}
-                  className="shrink-0 text-xs underline opacity-60">
-                  {p.status === 'rejected' ? 'put back' : 'leave out'}
-                </button>
+                data-status={p.status}
+                data-verified={p.evidenceVerified ? 'true' : 'false'}
+                className={`rounded-lg px-2 py-1
+                            ${p.status === 'rejected' || (p.status === 'pending' && !p.evidenceVerified) ? 'opacity-50' : ''}`}>
+                {editing === p.id
+                  ? (
+                    <ProposalEditor
+                      proposal={p} types={types} busy={busy}
+                      onDone={() => setEditing(null)}
+                      onSave={(patch) => void (async () => {
+                        try {
+                          await db.imports.edit(p.id, patch);
+                          setEditing(null);
+                          setNote(null);
+                        } catch (e) {
+                          setNote((e as Error).message ?? String(e));
+                        }
+                        await refresh(p.runId);
+                      })()} />
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="shrink-0 text-xs uppercase tracking-wide opacity-50">
+                          {p.targetTable.replace('_', ' ')}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{describe(p)}</span>
+                        {p.op === 'update' && (
+                          <span className="shrink-0 rounded-full border border-current/20 px-1.5 text-xs opacity-60">
+                            already in your codex
+                          </span>
+                        )}
+                        {p.confidence !== null && (
+                          <span className="shrink-0 text-xs tabular-nums opacity-50" title="the model's own confidence">
+                            {Math.round(p.confidence * 100)}%
+                          </span>
+                        )}
+                        {!p.evidenceVerified && (
+                          <span className="shrink-0 rounded-full border border-current/30 px-1.5 text-xs" data-testid="unverified">
+                            could not be traced to the file
+                          </span>
+                        )}
+                        {p.status === 'pending' && !p.evidenceVerified && (
+                          <button
+                            onClick={() => void (async () => {
+                              await db.imports.setStatus([p.id], 'accepted');
+                              await refresh(p.runId);
+                            })()}
+                            className="shrink-0 text-xs underline opacity-70">
+                            accept anyway
+                          </button>
+                        )}
+                        {(EDITABLE[p.targetTable]?.length ?? 0) > 0 && p.status !== 'rejected' && (
+                          <button onClick={() => setEditing(p.id)} className="shrink-0 text-xs underline opacity-60">
+                            edit
+                          </button>
+                        )}
+                        <button
+                          onClick={() => void (async () => {
+                            const next = p.status === 'rejected' ? 'accepted' : 'rejected';
+                            await db.imports.setStatus([p.id], next);
+                            await refresh(p.runId);
+                          })()}
+                          className="shrink-0 text-xs underline opacity-60">
+                          {p.status === 'rejected' ? 'put back' : 'leave out'}
+                        </button>
+                      </div>
+                      {(p.rationale || p.evidenceQuote) && (
+                        <p className="mt-0.5 text-xs opacity-50">
+                          {p.rationale}
+                          {p.evidenceQuote && <> · <q>{p.evidenceQuote}</q></>}
+                        </p>
+                      )}
+                    </>
+                  )}
               </li>
             ))}
           </ul>
@@ -362,6 +544,19 @@ export function ImportPage() {
                 <span className="shrink-0 text-xs tabular-nums opacity-50">
                   {Object.entries(run.counts).map(([k, n]) => `${n} ${k}`).join(', ')}
                 </span>
+                {run.status === 'staged' && (
+                  <button
+                    disabled={busy}
+                    onClick={() => void (async () => {
+                      setRunId(run.id);
+                      setFinished(null);
+                      await refresh(run.id);
+                      setStep('review');
+                    })()}
+                    className="shrink-0 text-xs underline opacity-70 disabled:opacity-30">
+                    review
+                  </button>
+                )}
                 {run.status === 'applied' && (
                   <button
                     disabled={busy}
@@ -399,6 +594,101 @@ function describe(p: ProposalRow): string {
   }
   return payload.title ?? '';
 }
+
+/** What one pass would send, said before it is sent. */
+function planLine(read: ReadResult, calls: number): string {
+  const chars = read.docs.reduce(
+    (n, d) => n + [...walk(d.root)].reduce((m, { node }) => m + node.text.length, 0), 0);
+  const tokens = Math.ceil(chars / 4);
+  const size = tokens >= 1000 ? `about ${Math.round(tokens / 1000)} thousand tokens` : `about ${tokens} tokens`;
+  return `${read.docs.length} file${read.docs.length === 1 ? '' : 's'} in ${calls} call${calls === 1 ? '' : 's'}, ${size} to the extract model.`;
+}
+
+/** What the model pass did, in one paragraph, problems named rather than counted. */
+function ModelSummary({ finished }: { finished: Finished }) {
+  const { proposals, unverified, dropped, problems, costUsd } = finished;
+  return (
+    <div className="mt-2 text-xs opacity-70" data-testid="model-summary">
+      <p>
+        The model proposed {proposals} thing{proposals === 1 ? '' : 's'} for {usd(costUsd)}
+        {unverified > 0 && <>, {unverified} of them without words it could point to</>}
+        {dropped.length > 0 && (
+          <>, and {dropped.length} more it filed under a type this project does not have</>
+        )}.
+      </p>
+      {dropped.length > 0 && (
+        <ul className="mt-0.5 list-disc pl-4">
+          {dropped.slice(0, 8).map((d, i) => <li key={i}>{d.what}: {d.reason}</li>)}
+        </ul>
+      )}
+      {problems.length > 0 && (
+        <ul className="mt-0.5 list-disc pl-4">
+          {problems.map((p, i) => (
+            <li key={i}>{p.label}: {p.state}{p.detail ? ` — ${p.detail}` : ''}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const BELIEFS = ['knows', 'suspects', 'believes_false', 'denies'];
+const LAW_CATEGORIES = ['style', 'canon', 'content'];
+
+/** The fields `EDITABLE` allows for the proposal's table, as inputs. */
+function ProposalEditor({ proposal, types, busy, onSave, onDone }: {
+  proposal: ProposalRow; types: EntityType[]; busy: boolean;
+  onSave: (patch: Record<string, unknown>) => void; onDone: () => void;
+}) {
+  const fields = EDITABLE[proposal.targetTable] ?? [];
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(fields.map((f) => [f, String(proposal.payload[f] ?? '')])));
+  const set = (key: string, value: string) => setDraft((d) => ({ ...d, [key]: value }));
+  const choices = (key: string): string[] | null =>
+    key === 'typeKey' ? types.map((t) => t.key) : key === 'belief' ? BELIEFS : key === 'category' ? LAW_CATEGORIES : null;
+  const wide = (key: string) => key === 'statement' || key === 'ruleText' || key === 'summary';
+  return (
+    <div className="space-y-2" data-testid="proposal-editor">
+      {fields.map((key) => {
+        const options = choices(key);
+        const id = `edit-${proposal.id}-${key}`;
+        return (
+          <div key={key} className="flex flex-wrap items-center gap-2 text-xs">
+            <label htmlFor={id} className="w-20 shrink-0 opacity-60">{labelOf(key)}</label>
+            {options
+              ? (
+                <select id={id} value={draft[key] ?? ''} onChange={(e) => set(key, e.target.value)}
+                  className="rounded border border-current/20 bg-transparent px-1 py-0.5">
+                  {options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : wide(key)
+                ? (
+                  <textarea id={id} rows={2} value={draft[key] ?? ''} onChange={(e) => set(key, e.target.value)}
+                    className="min-w-0 flex-1 rounded-lg border border-current/20 bg-transparent px-2 py-1 text-sm" />
+                ) : (
+                  <input id={id} value={draft[key] ?? ''} onChange={(e) => set(key, e.target.value)}
+                    className="min-w-0 flex-1 rounded-lg border border-current/20 bg-transparent px-2 py-1 text-sm" />
+                )}
+          </div>
+        );
+      })}
+      <div className="flex gap-3">
+        <button
+          disabled={busy}
+          onClick={() => onSave(Object.fromEntries(fields.filter((f) => draft[f] !== String(proposal.payload[f] ?? ''))
+            .map((f) => [f, draft[f]])))}
+          className="rounded-lg border border-current/20 bg-current/10 px-3 py-1 text-xs font-medium disabled:opacity-50">
+          Save
+        </button>
+        <button onClick={onDone} className="text-xs underline opacity-60">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+const labelOf = (key: string): string => ({
+  typeKey: 'type', ruleText: 'rule', learnedHow: 'how known', arcName: 'arc', entityName: 'entity',
+} as Record<string, string>)[key] ?? key;
 
 /** The count a reader of the mapping step wants: how many nodes came out of a document. */
 export const nodeCount = (doc: SourceDoc): number => [...walk(doc.root)].length;

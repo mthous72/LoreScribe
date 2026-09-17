@@ -193,12 +193,28 @@ shapeless output this project exists to beat ([D29](10-decisions.md)).
   `seed_kind = 'gap_fill'`, a value the schema has carried from the start, and is
   reviewed by the screen the importer already uses ([D29](10-decisions.md)).
 - Model profiles / roles.
+- The extraction lane for bible intake *(built)*: the `extract` role reads
+  each file in section-sized chunks, one `ai_run` each under the spend cap, and
+  proposes entities with aliases, facts with who knows them, and laws — each
+  quoting the words it read. Quotes are held against the file (doc 12 §3); an
+  unlocatable claim stages as unverified, is shown as such, and is never
+  accepted by accept-all. Types come from the project; an item naming a type the
+  project lacks is dropped and named. Proposals land in the same `proposal_run`
+  the rules use and are reviewed on the same screen, now with confidence,
+  evidence, accept-anyway, and an edit of the fields that matter before apply.
+  Plans and scenes stay with the rules. Scene extraction after a draft is the
+  next use of the same parser.
 - The compiler, all nine steps, with the **brief inspector UI**.
 - Draft, Continue, Expand, Rewrite — **beat-sized by default**, with whole-scene
   as a coarser mode. A beat's prose is proposed, diffed and spliced in place;
   Phase 3's span-level `origin` marks later record which beat produced which
   span. Streaming; cancellation.
 - `ai_run` recording with the stored brief.
+- Spend caps ([D17](10-decisions.md)): per-project, per-local-day warning and
+  stop in `project.settings_json`; the drafter refuses at the stop before it
+  compiles or sends anything and records a `blocked` run; the meter sits under
+  the draft controls with the raise one tap away, and the Providers page sets
+  both numbers in full. *(Built.)*
 - Rolling summaries and the continuity ladder.
 - Lore Digest compiler for structural generation.
 - Reasoning-allowance learning; sanitiser applied to every generated span.
@@ -287,8 +303,17 @@ surfaces, a theming system, animation, a component-library dependency.
 ## Phase 3 — Laws *(~2 weeks)*
 - Law CRUD, scoping, presets, the six categories.
 - Injection phase; budget protection for `must` laws.
-- Verification phase: regex, heuristic, then rubric checks.
-- Inline violation UI, targeted auto-revise, amend-the-law flow.
+- Verification phase: regex, heuristic, then rubric checks. *(Built, as the
+  step after every draft: the free checks and the repetition guard always, the
+  rubric laws batched into one `critique` call when that role has a model —
+  never the draft model — under the same spend cap; every rubric quote held
+  against the prose per doc 12 §3, the unlocatable ones stored and shown as
+  uncertain. Findings are `law_violation` rows on the draft run; the panel lists
+  them and never blocks acceptance. Laws take their check mode and pattern or
+  word band on the Laws page.)*
+- Inline violation UI, targeted auto-revise, amend-the-law flow. *(The list
+  under the draft is the first of these; underlines in the editor, auto-revise
+  and amend-from-the-finding are still to do.)*
 - System hard-floor laws, enforced **structurally** — `entity.maturity` and
   `is_real_person` checked against cast and register before the call
   ([doc 13](13-legal-and-compliance.md)) — plus the provider-refusal reporting path.

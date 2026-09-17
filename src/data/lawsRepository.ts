@@ -19,6 +19,8 @@ import { deviceId, uuidv7 } from './ids';
 export type LawScopeType = 'project' | 'book' | 'arc' | 'chapter' | 'scene' | 'entity' | 'pov';
 export type LawCategory = 'canon' | 'style' | 'voice' | 'structure' | 'content' | 'ip';
 export type LawSeverity = 'must' | 'should' | 'prefer';
+/** How the verification phase checks it — doc 04. `prompt` is injection only. */
+export type LawCheckMode = 'prompt' | 'regex' | 'heuristic' | 'rubric' | 'prompt+rubric';
 
 export interface Law {
   id: string;
@@ -32,6 +34,9 @@ export interface Law {
   rationale: string | null;
   examplesGood: string | null;
   examplesBad: string | null;
+  checkMode: LawCheckMode;
+  /** JSON. Regex `{pattern, flags?, why?, fix?}`; heuristic `{minWords?, maxWords?}`; rubric `{rubric?}`. */
+  checkConfig: string | null;
   isSystem: boolean;
   active: boolean;
   sortKey: string | null;
@@ -48,6 +53,8 @@ export interface LawDraft {
   rationale?: string | null;
   examplesGood?: string | null;
   examplesBad?: string | null;
+  checkMode?: LawCheckMode;
+  checkConfig?: string | null;
 }
 
 export interface LawPatch {
@@ -60,11 +67,13 @@ export interface LawPatch {
   rationale?: string | null;
   examplesGood?: string | null;
   examplesBad?: string | null;
+  checkMode?: LawCheckMode;
+  checkConfig?: string | null;
   active?: boolean;
 }
 
 const COLUMNS = `id, project_id, scope_type, scope_id, category, severity, title, rule_text,
-  rationale, examples_good, examples_bad, is_system, active, sort_key, rev`;
+  rationale, examples_good, examples_bad, is_system, active, sort_key, rev, check_mode, check_config`;
 
 const toLaw = (r: unknown[]): Law => ({
   id: r[0] as string, projectId: r[1] as string,
@@ -74,13 +83,33 @@ const toLaw = (r: unknown[]): Law => ({
   rationale: r[8] as string | null, examplesGood: r[9] as string | null,
   examplesBad: r[10] as string | null, isSystem: Number(r[11]) !== 0,
   active: Number(r[12]) !== 0, sortKey: r[13] as string | null, rev: Number(r[14]),
+  checkMode: (r[15] as LawCheckMode | null) ?? 'prompt', checkConfig: r[16] as string | null,
 });
 
 const PATCH_COLUMNS: Record<keyof LawPatch, string> = {
   title: 'title', ruleText: 'rule_text', category: 'category', severity: 'severity',
   scopeType: 'scope_type', scopeId: 'scope_id', rationale: 'rationale',
   examplesGood: 'examples_good', examplesBad: 'examples_bad', active: 'active',
+  checkMode: 'check_mode', checkConfig: 'check_config',
 };
+
+/**
+ * A check that cannot run is refused at the door rather than skipped at every
+ * draft: a regex law needs a pattern that compiles, a heuristic needs a band.
+ */
+function checkConfigReadable(mode: LawCheckMode, config: string | null): void {
+  if (mode !== 'regex' && mode !== 'heuristic') return;
+  let parsed: Record<string, unknown> | null;
+  try { parsed = config ? JSON.parse(config) as Record<string, unknown> : null; } catch { parsed = null; }
+  if (!parsed || typeof parsed !== 'object') throw new Error(`a ${mode} law needs its check settings`);
+  if (mode === 'regex') {
+    if (typeof parsed.pattern !== 'string' || !parsed.pattern.trim()) throw new Error('a regex law needs a pattern');
+    try { new RegExp(parsed.pattern, typeof parsed.flags === 'string' ? parsed.flags : 'i'); }
+    catch (e) { throw new Error(`that pattern does not compile: ${(e as Error).message}`, { cause: e }); }
+  } else if (typeof parsed.minWords !== 'number' && typeof parsed.maxWords !== 'number') {
+    throw new Error('a heuristic law needs a word band');
+  }
+}
 
 export class LawsRepository {
   constructor(private readonly driver: SqlDriver) {}
@@ -112,17 +141,20 @@ export class LawsRepository {
       title: draft.title.trim(), ruleText: draft.ruleText.trim(),
       rationale: draft.rationale ?? null,
       examplesGood: draft.examplesGood ?? null, examplesBad: draft.examplesBad ?? null,
+      checkMode: draft.checkMode ?? 'prompt', checkConfig: draft.checkConfig ?? null,
       isSystem: false, active: true, sortKey: null, rev: 1,
     };
     if (!law.title || !law.ruleText) throw new Error('a law needs a title and a rule');
+    checkConfigReadable(law.checkMode, law.checkConfig);
     await this.driver.batch([
       {
         sql: `INSERT INTO law (id, project_id, scope_type, scope_id, category, severity, title, rule_text,
-                               rationale, examples_good, examples_bad, check_mode, is_system, active,
-                               created_at, updated_at, rev)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?, 'prompt', 0, 1, ?, ?, 1)`,
+                               rationale, examples_good, examples_bad, check_mode, check_config, is_system,
+                               active, created_at, updated_at, rev)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 0, 1, ?, ?, 1)`,
         params: [law.id, projectId, law.scopeType, law.scopeId, law.category, law.severity,
-          law.title, law.ruleText, law.rationale, law.examplesGood, law.examplesBad, now, now],
+          law.title, law.ruleText, law.rationale, law.examplesGood, law.examplesBad,
+          law.checkMode, law.checkConfig, now, now],
       },
       this.#op(law.id, 'insert', law, now),
     ], true);
@@ -131,7 +163,11 @@ export class LawsRepository {
 
   /** Change what a writer may change. Refuses the hard floor. */
   async update(id: string, patch: LawPatch): Promise<void> {
-    await this.#writable(id);
+    const before = await this.#writable(id);
+    if ('checkMode' in patch || 'checkConfig' in patch) {
+      checkConfigReadable(patch.checkMode ?? before.checkMode,
+        'checkConfig' in patch ? patch.checkConfig ?? null : before.checkConfig);
+    }
     const sets: string[] = [];
     const params: unknown[] = [];
     for (const [key, column] of Object.entries(PATCH_COLUMNS) as [keyof LawPatch, string][]) {
@@ -166,10 +202,11 @@ export class LawsRepository {
     ], true);
   }
 
-  async #writable(id: string): Promise<void> {
+  async #writable(id: string): Promise<Law> {
     const law = await this.get(id);
     if (!law) throw new Error('no such law');
     if (law.isSystem) throw new Error('the hard floor is not editable');
+    return law;
   }
 
   #op(rowId: string, op: string, payload: unknown, ts: number) {
