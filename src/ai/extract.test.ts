@@ -9,7 +9,7 @@ import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { PlanRepository } from '../data/planRepository';
 import { ImportRepository } from '../data/importRepository';
 import { EncryptedCredentialStore, MemoryVault } from './credentials';
-import { Extractor, type ExtractEvent } from './extract';
+import { Extractor, type ChunkOutcome, type ExtractEvent } from './extract';
 import { NoModelError } from './roles';
 import { ProviderError, type ChatDelta, type ChatRequest, type ProviderAdapter } from './provider';
 import { parseMarkdown } from '../import/markdown';
@@ -109,8 +109,9 @@ describe('the extraction lane', () => {
     expect(events[0]).toMatchObject({ kind: 'plan', chunks: 2, files: 2 });
     expect(asked).toHaveLength(2);
     expect(asked[0]!.messages[0]!.content).toContain('SOURCE (cast/ilva.md)');
-    expect(events.filter((e) => e.kind === 'chunk').map((e) => (e as { state: string; proposals: number }).proposals))
-      .toEqual([2, 2]);
+    const outcomes = events.filter((e) => e.kind === 'chunk') as (ExtractEvent & ChunkOutcome)[];
+    expect(outcomes.map((o) => [o.state, o.proposals, o.attempts])).toEqual([['ok', 2, 1], ['ok', 2, 1]]);
+    expect(outcomes.every((o) => o.runId !== null && o.costUsd !== null)).toBe(true);
 
     const d = done(events);
     expect(d).toMatchObject({ proposals: 4, unverified: 1, dropped: [], problems: [] });
@@ -136,18 +137,59 @@ describe('the extraction lane', () => {
     expect(names).toEqual([['Ilva'], ['Renn']]);
   });
 
-  it('names a malformed answer and a refusal per chunk, and still stages the rest', async () => {
-    const { adapter } = fake((_req, n) => (n === 1
+  it('asks once more, firmly, when the answer is not JSON; names it malformed only when that fails too', async () => {
+    const { adapter, asked } = fake((_req, n) => (n <= 2
       ? [{ kind: 'text', text: 'I would rather not list these.' },
         { kind: 'done', finishReason: 'stop', servedBy: null }]
       : new ProviderError('refused', 'Nope', 403)));
     const d = done(await run(adapter));
     expect(d.proposals).toBe(0);
     expect(d.runId).toBeNull();
-    expect(d.problems.map((p) => [p.state, p.detail])).toEqual([
-      ['malformed', 'the model did not answer in the shape asked for'], ['refused', 'Nope'],
+    expect(asked).toHaveLength(3);
+    expect(asked[1]!.messages[0]!.content).toContain('Your previous answer was not one JSON object.');
+    expect(asked[0]!.messages[0]!.content).not.toContain('Your previous answer');
+    expect(d.problems.map((p) => [p.state, p.attempts])).toEqual([['malformed', 2], ['refused', 1]]);
+    expect(d.problems[0]!.detail).toContain('even when asked again');
+    expect(d.problems[1]!.detail).toBe('The provider declined: Nope');
+    // Every attempt is its own run, and the model's words are kept on it.
+    const list = await runs.list(P);
+    expect(list.map((r) => r.status).sort()).toEqual(['ok', 'ok', 'refused']);
+    expect((await runs.get(d.problems[0]!.runId!))?.outputText).toBe('I would rather not list these.');
+  });
+
+  it('recovers when the second attempt answers properly', async () => {
+    const { adapter, asked } = fake((_req, n) => (n === 1
+      ? [{ kind: 'text', text: 'Sure! Here is a summary of the file instead.' },
+        { kind: 'done', finishReason: 'stop', servedBy: null }]
+      : answer({ entities: [{ name: 'Ilva', type: 'character', summary: 'x', quote: 'keeps the seal, and the gate' }] })));
+    const events = await run(adapter);
+    const first = events.find((e) => e.kind === 'chunk') as ExtractEvent & ChunkOutcome;
+    expect(first).toMatchObject({ state: 'ok', proposals: 1, attempts: 2 });
+    expect(asked).toHaveLength(3); // two for the first chunk, one for the second
+    expect(done(events).problems).toEqual([]);
+  });
+
+  it('gives a cut-off answer twice the room the second time, then names it truncated', async () => {
+    const { adapter, asked } = fake(() => [
+      { kind: 'text', text: '{"entities": [{"name": "Ilva", "type": "cha' },
+      { kind: 'usage', promptTokens: 400, completionTokens: 800, reasoningTokens: 3000 },
+      { kind: 'done', finishReason: 'length', servedBy: 'Cheap' },
     ]);
-    expect((await runs.list(P)).map((r) => r.status).sort()).toEqual(['ok', 'refused']);
+    const d = done(await run(adapter));
+    expect(d.problems.map((p) => [p.state, p.attempts])).toEqual([['truncated', 2], ['truncated', 2]]);
+    expect(d.problems[0]!.detail).toContain('cut off');
+    // The retry has at least twice the first budget plus the reasoning the first answer taught the profile.
+    expect(asked[1]!.maxTokens).toBeGreaterThanOrEqual(asked[0]!.maxTokens * 2 + 3000);
+    expect((await runs.list(P)).filter((r) => r.status === 'truncated')).toHaveLength(4);
+  });
+
+  it('explains a provider failure in the writer\'s terms', async () => {
+    const { adapter } = fake(() => new ProviderError('bad-request', 'No endpoints found matching your data policy', 404));
+    const d = done(await run(adapter));
+    expect(d.problems[0]).toMatchObject({
+      state: 'failed', attempts: 1,
+      detail: 'OpenRouter rejected the request: No endpoints found matching your data policy',
+    });
   });
 
   it('stops at the spend cap, names the chunks it never sent, and stages what came before', async () => {
@@ -164,7 +206,8 @@ describe('the extraction lane', () => {
     await spend.setCaps(P, { warnUsd: 0, stopUsd: 0.02 });
     const d = done(await run(adapter));
     expect(asked).toHaveLength(1);
-    expect(d.problems).toEqual([{ label: 'cast/renn.md', state: 'blocked', detail: expect.stringContaining('daily stop') }]);
+    expect(d.problems.map((p) => [p.label, p.state])).toEqual([['cast/renn.md', 'blocked']]);
+    expect(d.problems[0]!.detail).toContain('spend');
     expect(d.proposals).toBe(1);
     expect((await runs.list(P)).map((r) => [r.purpose, r.status])).toContainEqual(['extract', 'blocked']);
   });
@@ -184,6 +227,6 @@ describe('the extraction lane', () => {
     });
     const d = done(await run(adapter, ctl.signal));
     expect(d.proposals).toBe(1);
-    expect(d.problems).toEqual([{ label: 'cast/renn.md', state: 'cancelled', detail: null }]);
+    expect(d.problems.map((p) => [p.label, p.state, p.detail])).toEqual([['cast/renn.md', 'cancelled', null]]);
   });
 });
