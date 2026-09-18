@@ -7,8 +7,8 @@ import type { RunsRepository, RunStatus } from '../data/runsRepository';
 import type { SpendRepository } from '../data/spendRepository';
 import type { ImportRepository, PreparedProposal } from '../data/importRepository';
 import {
-  chunkDocument, mergeExtracted, mergeRecommendations, parseExtractReply, renderExtractPrompt,
-  type Chunk, type ExtractTypes, type Extracted, type Recommendation,
+  chunkDocument, mergeExtracted, mergeRecommendations, parseExtractReply, renderExtractPrompt, sectionsFor,
+  type Chunk, type ExtractPrompt, type ExtractTypes, type Extracted, type Recommendation,
 } from '../domain/extract';
 import type { SourceDoc } from '../import/source';
 import { stripReasoningBlocks } from '../text/sanitise';
@@ -31,7 +31,9 @@ import { stripReasoningBlocks } from '../text/sanitise';
  * rule: one retry, not a loop): an answer in the wrong shape is asked for
  * again with the instruction made firmer, and an answer **cut off** — a
  * reasoning model spending the room on thinking — is asked for again with
- * twice the room, the allowance it just taught us included.
+ * twice the room, the allowance it just taught us included. A **dropped
+ * connection** mid-answer, the ordinary failure of a long stream on a phone,
+ * is asked for again as it was.
  *
  * Every proposal reaches the stager with its evidence checked. The run is
  * staged with accept-all applied to the verified rows, so the review opens
@@ -115,6 +117,8 @@ interface Call {
   costUsd: number | null;
   errorText: string | null;
   explained: string | null;
+  /** The connection was lost, before or during the answer. */
+  dropped: boolean;
 }
 
 export class Extractor {
@@ -164,10 +168,10 @@ export class Extractor {
         continue;
       }
 
-      const basePrompt = renderExtractPrompt(chunk, types);
+      const basePrompt = renderExtractPrompt(chunk, types, sectionsFor(chunk.path));
       let maxTokens = Math.max(MIN_TOKENS, Math.ceil(chunk.text.length / 4 * OUTPUT_RATIO))
         + profile.reasoningAllowance;
-      let prompt = basePrompt;
+      let prompt: ExtractPrompt = basePrompt;
       let result: ReturnType<typeof parseExtractReply> | null = null;
       let last: Call | null = null;
 
@@ -195,6 +199,8 @@ export class Extractor {
         cost += last.costUsd ?? 0;
         outcome.costUsd = (outcome.costUsd ?? 0) + (last.costUsd ?? 0);
 
+        // A dropped connection is the one error worth a second go, as it was.
+        if (last.status === 'error' && last.dropped && attempt === 1) continue;
         if (last.status !== 'ok' && last.status !== 'truncated') break;
         const parsed = parseExtractReply(last.reply, chunk, types);
         if (!parsed.malformed) { result = parsed; break; }
@@ -206,7 +212,7 @@ export class Extractor {
             .find((p) => p.id === profile.id)?.reasoningAllowance ?? profile.reasoningAllowance;
           maxTokens = maxTokens * 2 + learned;
         } else {
-          prompt = basePrompt + FIRMER;
+          prompt = { system: basePrompt.system, user: basePrompt.user + FIRMER };
         }
       }
 
@@ -263,9 +269,10 @@ export class Extractor {
   /** One call, one `ai_run`, closed however it ends; what is on the wire, yielded as it happens. */
   async *#call(
     projectId: string, profile: ModelProfile, account: ProviderAccount, adapter: ProviderAdapter,
-    chunk: Chunk, prompt: string, maxTokens: number, attempt: number, index: number, signal: AbortSignal,
+    chunk: Chunk, prompt: ExtractPrompt, maxTokens: number, attempt: number, index: number,
+    signal: AbortSignal,
   ): AsyncGenerator<ExtractEvent, Call> {
-    const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
+    const messages: ChatMessage[] = [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }];
     const live: LiveCall = {
       index, label: chunk.label, attempt, words: chunk.words, maxTokens, chars: 0, reasoning: false,
     };
@@ -277,7 +284,7 @@ export class Extractor {
         dataPolicy: account.dataPolicy,
       },
       briefJson: JSON.stringify({ label: chunk.label, words: chunk.words, attempt }),
-      promptRendered: prompt,
+      promptRendered: `${prompt.system}\n\n---\n\n${prompt.user}`,
     });
 
     const started = Date.now();
@@ -287,6 +294,7 @@ export class Extractor {
     let status: RunStatus = 'ok';
     let errorText: string | null = null;
     let explained: string | null = null;
+    let dropped = false;
     let lastSent = 0;
     try {
       for await (const delta of adapter.chat({
@@ -319,6 +327,7 @@ export class Extractor {
       }
     } catch (e) {
       status = e instanceof ProviderError && e.code === 'refused' ? 'refused' : 'error';
+      dropped = e instanceof ProviderError && e.code === 'network';
       errorText = (e as Error).message ?? String(e);
       explained = explainProviderError(e);
     }
@@ -334,7 +343,7 @@ export class Extractor {
     if (usage && usage.tokensReasoning > 0) {
       await this.deps.providers.recordReasoning(profile.id, usage.tokensReasoning);
     }
-    return { runId, status, reply, costUsd, errorText, explained };
+    return { runId, status, reply, costUsd, errorText, explained, dropped };
   }
 }
 

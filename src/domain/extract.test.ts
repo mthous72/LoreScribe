@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   chunkDocument, estimateTokens, mergeExtracted, mergeRecommendations, parseExtractReply, readAttributes,
-  renderExtractPrompt, slugType, type Chunk, type ExtractTypes, type Recommendation,
+  renderExtractPrompt, sectionsFor, slugType, type Chunk, type ExtractTypes, type Recommendation,
 } from './extract';
 import { parseMarkdown } from '../import/markdown';
 
@@ -51,18 +51,37 @@ describe('chunkDocument', () => {
 });
 
 describe('renderExtractPrompt', () => {
-  it('offers only the project types with their fields, names the known entities, and asks for one JSON object', () => {
+  it('splits into a fixed system turn and a per-source user turn, with the source fenced', () => {
     const p = renderExtractPrompt(chunk, types);
-    expect(p).toContain('character (Character; attribute fields: age, occupation, want, lie)');
-    expect(p).toContain('location (Location)');
-    // The entry is the model's writing, anchored by a quote.
-    expect(p).toContain('WRITE the entries');
-    expect(p).toContain('resolve pronouns to names');
-    expect(p).toContain('"description": "<one to three paragraphs in your own clean prose');
-    expect(p).toContain('NAMES ALREADY IN THE CODEX (reuse them exactly when the text means the same person or thing): Renn');
-    expect(p).toContain('SOURCE (cast/ilva.md)\n# Ilva'.replace('# Ilva', 'Ilva').slice(0, 20));
-    expect(p).toContain('Answer with one JSON object and no other text:');
-    expect(p).toContain('Do not invent names, facts or rules.');
+    // System: role, the quote rule with its reason, the example, the shape. The same for every call.
+    expect(p.system).toContain('WRITE the entries');
+    expect(p.system).toContain('resolve pronouns to names');
+    expect(p.system).toContain('The quote is how the writer checks you.');
+    expect(p.system).toContain('EXAMPLE — an invented source produced this answer:');
+    expect(p.system).toContain('"name": "Tamsin Reel"');
+    expect(p.system).toContain('keep it brief; the answer is the JSON');
+    expect(p.system).not.toContain('<one');
+    expect(p.system).not.toContain('confidence');
+    expect(p.system).toBe(renderExtractPrompt({ ...chunk, text: 'other', label: 'x' }, types).system);
+    // User: this project's types and names, and the fenced source.
+    expect(p.user).toContain('character (Character; fields: age, occupation, want, lie)');
+    expect(p.user).toContain('location (Location)');
+    expect(p.user).toContain('NAMES ALREADY IN THE CODEX (reuse them exactly when the source means the same person or thing): Renn');
+    expect(p.user).toContain('===== SOURCE: cast/ilva.md =====\nIlva');
+    expect(p.user).toContain('===== END OF SOURCE =====');
+    expect(p.user).toContain('SECTIONS WANTED FOR THIS SOURCE: entities, facts, relationships, laws, unplaced.');
+  });
+
+  it('asks for the sections a file can yield, and shows only those in the example', () => {
+    expect(sectionsFor('Kiln-Row/notes/house-style.md')).toEqual(['laws', 'unplaced']);
+    expect(sectionsFor('reference/who-knows-what.md')).toEqual(['entities', 'facts', 'relationships', 'unplaced']);
+    expect(sectionsFor('characters/ilva.md')).toEqual(['entities', 'facts', 'relationships', 'laws', 'unplaced']);
+    const rules = renderExtractPrompt(chunk, types, ['laws', 'unplaced']);
+    expect(rules.system).toContain('- "laws":');
+    expect(rules.system).not.toContain('- "entities":');
+    expect(rules.system).not.toContain('Tamsin Reel');
+    expect(rules.system).toContain('No weather openings');
+    expect(rules.user).toContain('SECTIONS WANTED FOR THIS SOURCE: laws, unplaced.');
   });
 });
 
@@ -141,7 +160,8 @@ describe('parseExtractReply', () => {
     // One knowledge row: "certain" is not a belief the schema has.
     expect(known).toMatchObject({ table: 'fact_knowledge', payload: { entityName: 'Renn', belief: 'suspects', learnedHow: null } });
     expect((known!.payload as { factKey: string }).factKey).toBe((fact!.payload as { key: string }).key);
-    expect(want).toMatchObject({ payload: { subjectName: null }, confidence: 0.5 }); // 'high' is not a number
+    // 'high' is not a number: confidence comes from the evidence instead, and this quote is in the file.
+    expect(want).toMatchObject({ payload: { subjectName: null }, confidence: 0.9 });
 
     expect(law).toMatchObject({
       table: 'law', payload: { category: 'style', severity: 'must', ruleText: 'Never name the Warden in narration; only in speech.', order: 0 },

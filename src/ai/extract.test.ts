@@ -112,7 +112,10 @@ describe('the extraction lane', () => {
     const events = await run(adapter);
     expect(events[0]).toMatchObject({ kind: 'plan', chunks: 2, files: 2 });
     expect(asked).toHaveLength(2);
-    expect(asked[0]!.messages[0]!.content).toContain('SOURCE (cast/ilva.md)');
+    expect(asked[0]!.messages[0]!.role).toBe('system');
+    expect(asked[0]!.messages[1]!.content).toContain('===== SOURCE: cast/ilva.md =====');
+    // The system turn is the same on both calls: a provider's prefix cache hits.
+    expect(asked[1]!.messages[0]!.content).toBe(asked[0]!.messages[0]!.content);
     const outcomes = events.filter((e) => e.kind === 'chunk') as (ExtractEvent & ChunkOutcome)[];
     expect(outcomes.map((o) => [o.state, o.proposals, o.attempts])).toEqual([['ok', 2, 1], ['ok', 2, 1]]);
     expect(outcomes.every((o) => o.runId !== null && o.costUsd !== null)).toBe(true);
@@ -153,8 +156,8 @@ describe('the extraction lane', () => {
     expect(d.proposals).toBe(0);
     expect(d.runId).toBeNull();
     expect(asked).toHaveLength(3);
-    expect(asked[1]!.messages[0]!.content).toContain('Your previous answer was not one JSON object.');
-    expect(asked[0]!.messages[0]!.content).not.toContain('Your previous answer');
+    expect(asked[1]!.messages[1]!.content).toContain('Your previous answer was not one JSON object.');
+    expect(asked[0]!.messages[1]!.content).not.toContain('Your previous answer');
     expect(d.problems.map((p) => [p.state, p.attempts])).toEqual([['malformed', 2], ['refused', 1]]);
     expect(d.problems[0]!.detail).toContain('even when asked again');
     expect(d.problems[1]!.detail).toBe('The provider declined: Nope');
@@ -188,6 +191,21 @@ describe('the extraction lane', () => {
     // The retry has at least twice the first budget plus the reasoning the first answer taught the profile.
     expect(asked[1]!.maxTokens).toBeGreaterThanOrEqual(asked[0]!.maxTokens * 2 + 3000);
     expect((await runs.list(P)).filter((r) => r.status === 'truncated')).toHaveLength(4);
+  });
+
+  it('asks once more, as it was, when the connection dropped, and names the drop when it drops twice', async () => {
+    const { adapter, asked } = fake((_req, n) => (n === 1
+      ? new ProviderError('network', 'The connection dropped after 41s with 1,240 characters received.')
+      : n === 2
+        ? answer({ entities: [{ name: 'Ilva', type: 'character', summary: 'x', quote: 'keeps the seal, and the gate' }] })
+        : new ProviderError('network', 'The connection dropped after 12s with 0 characters received.')));
+    const events = await run(adapter);
+    const [first, second] = events.filter((e) => e.kind === 'chunk') as (ExtractEvent & ChunkOutcome)[];
+    expect(first).toMatchObject({ state: 'ok', proposals: 1, attempts: 2 });
+    expect(asked[1]!.messages[1]!.content).toBe(asked[0]!.messages[1]!.content);
+    expect(second).toMatchObject({ state: 'failed', attempts: 2 });
+    expect(second!.detail).toContain('dropped mid-answer');
+    expect(asked).toHaveLength(4);
   });
 
   it('explains a provider failure in the writer\'s terms', async () => {

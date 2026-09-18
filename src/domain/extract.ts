@@ -208,59 +208,148 @@ function splitParagraphs(text: string, maxWords: number): string[] {
   return pieces;
 }
 
+/** Which parts of an answer a file can sensibly yield. */
+export type ExtractSection = 'entities' | 'facts' | 'relationships' | 'laws' | 'unplaced';
+export const ALL_SECTIONS: readonly ExtractSection[] = ['entities', 'facts', 'relationships', 'laws', 'unplaced'];
+
 /**
- * The extraction turn. The file's words, the project's types, the names it
- * already knows, and the shape of the answer. Short and literal on purpose:
- * this goes to the cheap role.
+ * What to ask for, from where the file sits. A rules file yields rules and
+ * nothing else; a who-knows-what table yields facts and the people in it; a
+ * character or place file yields the lot. Six sections at once is more than a
+ * small model can hold, and asking a style guide for relationships invites
+ * invention. The same signals the rule-based lane reads.
  */
-export function renderExtractPrompt(chunk: Chunk, types: ExtractTypes): string {
+export function sectionsFor(path: string): ExtractSection[] {
+  if (/\blaws?\b|\brules?\b|house.?style|style.?guide|\bstyle\b|\bcanon\b/iu.test(path)) return ['laws', 'unplaced'];
+  if (/fact|know|secret|reveal/iu.test(path)) return ['entities', 'facts', 'relationships', 'unplaced'];
+  return [...ALL_SECTIONS];
+}
+
+export interface ExtractPrompt {
+  /** Role, rules and the answer's shape: the same for every call, so a provider's prefix cache hits. */
+  system: string;
+  /** This project's types and names, and the fenced source. */
+  user: string;
+}
+
+const SOURCE_FENCE = '=====';
+
+/**
+ * One worked example, invented, so the shape is shown rather than drawn in
+ * angle brackets — small models copy placeholders literally. Every section
+ * appears once; the call says which are wanted.
+ */
+const EXAMPLE = {
+  entities: [{
+    name: 'Tamsin Reel', type: 'character', aliases: ['the Reel', 'Tam'],
+    summary: 'Tamsin Reel is the harbourmaster of Low Quay and the only person who can read the tide ledgers.',
+    description: 'Tamsin Reel keeps the harbour at Low Quay and has done since her father drowned. She reads '
+      + 'the tide ledgers nobody else can, and charges for it. She distrusts the guild and says so.\n\n'
+      + 'She is short, grey before forty, and never seen without the brass key she will not explain.',
+    attributes: { occupation: 'harbourmaster', want: 'to keep the quay out of guild hands', lie: 'that she owes nobody' },
+    quote: 'Tamsin has kept the harbour since her father drowned',
+  }],
+  facts: [{
+    subject: 'Tamsin Reel', statement: 'Tamsin Reel forged the last three tide ledgers.',
+    knownBy: [{ entity: 'Orrin Vale', belief: 'suspects', how: 'the tallies do not match his own' }],
+    quote: 'the last three ledgers are hers, and false',
+  }],
+  relationships: [{
+    from: 'Orrin Vale', to: 'Tamsin Reel', kind: 'rival',
+    note: 'Orrin wants the harbour for the guild.', quote: 'Orrin means to have the quay for the guild',
+  }],
+  laws: [{
+    category: 'style', title: 'No weather openings',
+    rule: 'Never open a scene on the weather. Begin with a person doing something.',
+    quote: 'never open on weather',
+  }],
+  unplaced: [{
+    what: 'The tide calendar', why: 'A table of tide names by month; belongs in a calendar or timeline, '
+      + 'not in any entry.', quote: 'Names of the tides, by month',
+  }],
+};
+
+const SECTION_NOTES: Record<ExtractSection, string> = {
+  entities: '"entities": the file\'s own subjects. A person or place merely mentioned is not an entry unless the file says '
+    + 'something substantive about them; they belong in "relationships" or as an alias. Use one of the project\'s types '
+    + 'when it fits; when none fits — a language, a magic system, a ship, a religion — give a short new type name, and '
+    + 'it will be offered to the writer as a new type. Fill the type\'s attribute fields from what the file states, and add '
+    + 'a field of your own when the file states a concrete detail with no field for it.',
+  facts: '"facts": things the file establishes as true in the story, one clear present-tense sentence each, names not '
+    + 'pronouns, with who knows them and how, when the file says.',
+  relationships: '"relationships": one entry per pair the file connects, kind in one or two words.',
+  laws: '"laws": rules for the writer or the prose, each as an instruction. Categories: style (how the prose is written), '
+    + 'canon (what is true in the world), content (what stays off the page), voice (how someone speaks), structure '
+    + '(how scenes and chapters are built).',
+  unplaced: '"unplaced": anything the file establishes that belongs in a story bible but fits none of the sections asked '
+    + 'for — a timeline, a calendar, a language\'s rules, a map, a theme, a scene list — named, with what it is and where '
+    + 'it would belong, so the writer can decide.',
+};
+
+/**
+ * The extraction turn, in two parts.
+ *
+ * The **system** message is the same for every call: the role, the rules,
+ * the worked example, and the answer's shape. A provider's prefix cache
+ * keys on it, and models follow a system turn for format more reliably than
+ * an instruction buried under a file. The **user** message is what changes:
+ * the project's types and names, and the source, fenced, so the model can
+ * tell where the file ends and our words resume.
+ */
+export function renderExtractPrompt(
+  chunk: Chunk, types: ExtractTypes, sections: readonly ExtractSection[] = ALL_SECTIONS,
+): ExtractPrompt {
+  const wanted = ALL_SECTIONS.filter((s) => sections.includes(s));
+  const example = Object.fromEntries(wanted.map((s) => [s, EXAMPLE[s]]));
+  const system = [
+    'You turn one part of a novelist\'s story bible into entries for a codex database. You read the source and WRITE '
+    + 'the entries: clean present-tense prose that fits a reference entry, not a copy of the source. Correct its '
+    + 'typos, resolve pronouns to names, drop its formatting, headings and asides, keep every concrete detail it '
+    + 'gives, and invent nothing it does not say. The source is fiction the writer owns; render it as it is.',
+    '',
+    'EVERY ITEM CARRIES A "quote": the source\'s own words the item rests on, copied exactly, at least twelve '
+    + 'characters. The quote is how the writer checks you. An item whose quote is not in the source is set aside '
+    + 'unread, however good it is, so copy rather than paraphrase.',
+    '',
+    'SECTIONS',
+    ...wanted.map((s) => `- ${SECTION_NOTES[s]}`),
+    '',
+    'A "summary" is one sentence saying who or what this is, as an encyclopedia entry begins. A "description" is one '
+    + 'to three paragraphs in your own clean prose covering everything the source establishes: role, history, '
+    + 'appearance, relationships, contradictions. Use an empty list for a section the source does not fill and an '
+    + 'empty object for attributes it does not give.',
+    '',
+    'EXAMPLE — an invented source produced this answer:',
+    JSON.stringify(example, null, 1),
+    '',
+    'Answer with one JSON object in that shape and no other text: no explanation, no code fence, nothing before the '
+    + 'opening brace or after the closing one. If you reason first, keep it brief; the answer is the JSON.',
+  ].join('\n');
+
   const typeList = types.types.map((t) => {
     const fields = (t.attributes ?? []).filter(Boolean);
-    return `${t.key} (${t.label}${fields.length ? `; attribute fields: ${fields.join(', ')}` : ''})`;
+    return `${t.key} (${t.label}${fields.length ? `; fields: ${fields.join(', ')}` : ''})`;
   }).join('\n  ');
   const known = [...new Set([...types.existing.values()].map((e) => e.name))]
     .sort((a, b) => a.localeCompare(b, 'en'));
-  return [
-    'You are turning part of a novelist\'s story bible into codex entries. Read the source, then WRITE the entries: '
-    + 'clean present-tense prose that fits a reference entry, not a copy of the source. Correct its typos, '
-    + 'resolve pronouns to names, drop its formatting, headings and asides, keep every concrete detail it '
-    + 'gives, and invent nothing it does not say.',
+  const user = [
+    `SECTIONS WANTED FOR THIS SOURCE: ${wanted.join(', ')}.`,
     '',
-    'ENTITY TYPES THIS PROJECT HAS, with the attribute fields each can carry:',
+    'ENTITY TYPES THIS PROJECT HAS, with the attribute fields each carries:',
     `  ${typeList}`,
-    'Use one of these when it fits. When none fits — a language, a magic system, a ship, a religion — give '
-    + 'a short new type name instead; it will be offered to the writer as a new type. Add attribute fields '
-    + 'the type lacks when the source states a concrete detail with no field for it.',
     known.length
-      ? `NAMES ALREADY IN THE CODEX (reuse them exactly when the text means the same person or thing): ${known.join(', ')}`
+      ? '\nNAMES ALREADY IN THE CODEX (reuse them exactly when the source means the same person or thing): '
+        + known.join(', ')
       : '',
     '',
-    `SOURCE (${chunk.label})`,
+    `${SOURCE_FENCE} SOURCE: ${chunk.label} ${SOURCE_FENCE}`,
     chunk.text,
+    `${SOURCE_FENCE} END OF SOURCE ${SOURCE_FENCE}`,
     '',
-    'Answer with one JSON object and no other text:',
-    '{"entities": [{"name": "", "type": "<one of the types above, or a short new type name if none fits>", '
-    + '"aliases": [""],',
-    '   "summary": "<one sentence that says who or what this is, as an encyclopedia entry begins>",',
-    '   "description": "<one to three paragraphs in your own clean prose, covering everything the source '
-    + 'establishes about it: role, history, appearance, relationships, contradictions>",',
-    '   "attributes": {"<a field from the type\'s list, or another concrete detail the source states>": "<value>"},',
-    '   "quote": "<the source\'s own words this entry rests on, copied exactly, at least twelve characters>", '
-    + '"confidence": 0.0}],',
-    ' "facts": [{"subject": "<entity name or empty>", "statement": "<one clear sentence, present tense, names not '
-    + 'pronouns>", "knownBy": [{"entity": "", "belief": "knows|suspects|believes_false|denies", "how": ""}], '
-    + '"quote": "", "confidence": 0.0}],',
-    ' "relationships": [{"from": "<entity name>", "to": "<entity name>", "kind": "<one or two words: sibling, '
-    + 'rival, serves, owes, loves, made>", "note": "<one sentence, or empty>", "quote": "", "confidence": 0.0}],',
-    ' "laws": [{"category": "style|canon|content|voice|structure", "title": "<a few words>", '
-    + '"rule": "<the rule as an instruction to a writer, one or two sentences>", "quote": "", "confidence": 0.0}],',
-    ' "unplaced": [{"what": "<a few words naming it>", "why": "<what it is, and where in a story bible it would '
-    + 'belong>", "quote": "", "confidence": 0.0}]}',
-    'Put in "unplaced" anything the source establishes that belongs in a story bible but fits none of the shapes '
-    + 'above — a timeline, a calendar, a language\'s rules, a map, a theme, a scene list — so the writer can '
-    + 'decide where it goes. Use an empty list for anything the source does not establish and an empty object '
-    + 'for attributes it does not give. Do not invent names, facts or rules.',
+    'The JSON object for this source:',
   ].filter((line) => line !== '').join('\n');
+
+  return { system, user };
 }
 
 interface RawEntity {
@@ -306,9 +395,14 @@ export function readAttributes(raw: unknown): Record<string, string> {
 /** Every category the laws engine has (doc 04), not only the three the pull-down offers. */
 const LAW_CATEGORIES = new Set(['style', 'canon', 'content', 'voice', 'structure', 'ip']);
 
-function clip(v: unknown): number {
+/**
+ * The model's confidence when it gave one, else read off the evidence: a
+ * located quote is the one signal we can check, and it is a better guide than
+ * a number a small model sets to 1.0 for everything.
+ */
+function clip(v: unknown, verified = true): number {
   const n = typeof v === 'number' ? v : Number.NaN;
-  if (!Number.isFinite(n)) return 0.5;
+  if (!Number.isFinite(n)) return verified ? 0.9 : 0.4;
   return Math.min(1, Math.max(0, Math.round(n * 100) / 100));
 }
 
@@ -374,7 +468,7 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
       },
       rationale: `${from} — the model read it as a ${isNewType ? typeWord.trim() : typeKey}`
         + (existing ? ', already in your codex' : ''),
-      confidence: clip(e.confidence), evidenceQuote: quote, evidenceVerified: verified,
+      confidence: clip(e.confidence, verified), evidenceQuote: quote, evidenceVerified: verified,
     }];
     for (const alias of Array.isArray(e.aliases) ? e.aliases : []) {
       const a = str(alias);
@@ -382,7 +476,7 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
       rows.push({
         table: 'entity_alias', op: 'new', payload: { entityName: name, alias: a },
         rationale: `${from} — another name for ${name}`,
-        confidence: clip(e.confidence), evidenceQuote: quote, evidenceVerified: verified,
+        confidence: clip(e.confidence, verified), evidenceQuote: quote, evidenceVerified: verified,
       });
     }
 
@@ -433,7 +527,7 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
       table: 'relationship', op: 'new',
       payload: { fromName, toName, kind: kind.toLowerCase(), notes: str(r.note) },
       rationale: `${from} — ${fromName} ${kind.toLowerCase()} ${toName}`,
-      confidence: clip(r.confidence), evidenceQuote: quote, evidenceVerified: verified,
+      confidence: clip(r.confidence, verified), evidenceQuote: quote, evidenceVerified: verified,
     });
   }
 
@@ -448,7 +542,7 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
       table: 'fact', op: 'new',
       payload: { key, predicate: statement, statement, subjectName: subject },
       rationale: `${from}${subject ? ` — about ${subject}` : ''}`,
-      confidence: clip(f.confidence), evidenceQuote: quote, evidenceVerified: verified,
+      confidence: clip(f.confidence, verified), evidenceQuote: quote, evidenceVerified: verified,
     });
     for (const k of list<RawKnown>(f.knownBy)) {
       const entity = str(k.entity);
@@ -458,7 +552,7 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
         table: 'fact_knowledge', op: 'new',
         payload: { factKey: key, entityName: entity, belief, learnedHow: str(k.how) },
         rationale: `${from} — what ${entity} makes of it`,
-        confidence: clip(f.confidence), evidenceQuote: quote, evidenceVerified: verified,
+        confidence: clip(f.confidence, verified), evidenceQuote: quote, evidenceVerified: verified,
       });
     }
   }
@@ -480,7 +574,7 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
       table: 'law', op: 'new',
       payload: { category, severity: 'must', title: str(l.title) ?? firstWords(rule), ruleText: rule, order: order++ },
       rationale: `${from} — a ${category} rule`,
-      confidence: clip(l.confidence), evidenceQuote: quote, evidenceVerified: verified,
+      confidence: clip(l.confidence, verified), evidenceQuote: quote, evidenceVerified: verified,
     });
   }
 
@@ -491,7 +585,7 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
     const { quote, verified } = evidence(u.quote);
     recommendations.push({
       kind: 'unplaced', what, why, evidenceQuote: quote, evidenceVerified: verified,
-      confidence: clip(u.confidence), label: chunk.label,
+      confidence: clip(u.confidence, verified), label: chunk.label,
     });
   }
 

@@ -11,7 +11,9 @@ export function explainProviderError(e: unknown): string {
       case 'bad-request': return `OpenRouter rejected the request: ${e.message}`;
       case 'provider': return `OpenRouter had a problem at its end: ${e.message}`;
       case 'network':
-        return 'No answer from OpenRouter — the device is offline, or the browser was not allowed to make the call.';
+        return e.message.startsWith('The connection dropped')
+          ? `OpenRouter's connection dropped mid-answer: ${e.message.replace(/^The connection dropped /u, '')}`
+          : 'No answer from OpenRouter — the device is offline, or the browser was not allowed to make the call.';
     }
   }
   return (e as Error)?.message ?? String(e);
