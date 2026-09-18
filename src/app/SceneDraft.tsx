@@ -215,7 +215,7 @@ export function SceneDraft({ projectId, sceneId, onAccepted }: {
           {note.needsModel && (
             <>
               {' '}
-              <Link to={`/project/${projectId}/providers`} className="underline">Providers →</Link>
+              <Link to={`/project/${projectId}/providers`} className="underline">Settings →</Link>
             </>
           )}
           {note.stopped && (
@@ -342,7 +342,7 @@ function Findings({ verdict, projectId }: { verdict: Verdict; projectId: string 
           {rubric.state === 'no-model' && (
             <>
               {' '}
-              <Link to={`/project/${projectId}/providers`} className="underline">Providers →</Link>
+              <Link to={`/project/${projectId}/providers`} className="underline">Settings →</Link>
             </>
           )}
           {skipped.length > 0 && (

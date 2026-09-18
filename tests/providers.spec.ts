@@ -30,7 +30,7 @@ async function providers(page: Page): Promise<void> {
   await page.getByRole('link', { name: /^Ashfall/ }).first().click();
   // The project's navigation appears once there is a book to navigate from.
   await page.getByRole('button', { name: 'Create the first book' }).click();
-  await page.getByRole('link', { name: /^Providers/ }).click();
+  await page.getByRole('link', { name: /^Settings —/ }).click();
   await expect(page.getByTestId('key-protection')).toBeVisible();
 }
 

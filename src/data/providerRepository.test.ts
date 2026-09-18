@@ -33,6 +33,16 @@ describe('accounts', () => {
 });
 
 describe('profiles', () => {
+  it('keeps one overall default with no project, read by every project', async () => {
+    const a = await repo.addAccount({ kind: 'openrouter', label: 'Mine' });
+    await repo.setProfile(null, 'default', { providerAccountId: a.id, modelId: 'everything' });
+    expect((await repo.listProfiles('p1')).map((p) => [p.role, p.modelId, p.projectId]))
+      .toEqual([['default', 'everything', null]]);
+    expect((await repo.listProfiles('p2')).map((p) => p.modelId)).toEqual(['everything']);
+    await repo.setProfile(null, 'default', { providerAccountId: a.id, modelId: 'replaced' });
+    expect((await repo.listProfiles('p2')).map((p) => p.modelId)).toEqual(['replaced']);
+  });
+
   it('holds one per role per project, the project’s own over the default', async () => {
     const a = await repo.addAccount({ kind: 'openrouter', label: 'x' });
     await repo.setProfile(null, 'draft', { providerAccountId: a.id, modelId: 'default-model', contextWindow: 8000 });

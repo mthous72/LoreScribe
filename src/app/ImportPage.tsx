@@ -259,7 +259,7 @@ export function ImportPage() {
           {needsModel && (
             <>
               {' '}
-              <Link to={`/project/${projectId}/providers`} className="underline">Providers →</Link>
+              <Link to={`/project/${projectId}/providers`} className="underline">Settings →</Link>
             </>
           )}
         </p>
