@@ -1,7 +1,8 @@
 import type { CredentialStore } from './credentials';
+import { explainProviderError } from './explain';
 import { ProviderError, type ChatMessage, type ProviderAdapter } from './provider';
 import { costOf, defaultAdapter, guardSpend, resolveRole, SpendCapError } from './roles';
-import type { ProviderAccount, ProviderRepository } from '../data/providerRepository';
+import type { ModelProfile, ProviderAccount, ProviderRepository } from '../data/providerRepository';
 import type { RunsRepository, RunStatus } from '../data/runsRepository';
 import type { SpendRepository } from '../data/spendRepository';
 import type { ImportRepository, PreparedProposal } from '../data/importRepository';
@@ -21,7 +22,16 @@ import { stripReasoningBlocks } from '../text/sanitise';
  * halfway stops halfway, with what it has read so far staged and the rest
  * named. The role is `extract`, the cheap one; there is no fall-back to the
  * draft model. Progress is streamed as events so the screen can show which
- * file is being read and what it has found so far.
+ * file is being read and what came of it.
+ *
+ * **Every chunk ends in a named state**, and the screen shows all of them,
+ * whether or not anything was staged: a pass that finds nothing must say
+ * why, file by file, or the writer is left looking at a blank. Two states a
+ * small free model produces often get a second attempt, once (doc 12's
+ * rule: one retry, not a loop): an answer in the wrong shape is asked for
+ * again with the instruction made firmer, and an answer **cut off** — a
+ * reasoning model spending the room on thinking — is asked for again with
+ * twice the room, the allowance it just taught us included.
  *
  * Every proposal reaches the stager with its evidence checked. The run is
  * staged with accept-all applied to the verified rows, so the review opens
@@ -29,9 +39,26 @@ import { stripReasoningBlocks } from '../text/sanitise';
  * for a writer's own decision.
  */
 
+export type ChunkState =
+  | 'ok' | 'empty' | 'malformed' | 'truncated' | 'refused' | 'failed' | 'blocked' | 'cancelled';
+
+export interface ChunkOutcome {
+  index: number;
+  label: string;
+  state: ChunkState;
+  proposals: number;
+  costUsd: number | null;
+  /** The last `ai_run` made for it, whose `output_text` is what the model said. */
+  runId: string | null;
+  /** A sentence for the screen when the state needs one. */
+  detail: string | null;
+  /** How many calls it took. */
+  attempts: number;
+}
+
 export type ExtractEvent =
   | { kind: 'plan'; chunks: number; files: number; tokens: number }
-  | { kind: 'chunk'; index: number; label: string; state: ChunkState; proposals: number; costUsd: number | null }
+  | ({ kind: 'chunk' } & ChunkOutcome)
   | {
     kind: 'done';
     runId: string | null;
@@ -39,11 +66,9 @@ export type ExtractEvent =
     unverified: number;
     dropped: { what: string; reason: string }[];
     /** Chunks that did not produce proposals, and why. */
-    problems: { label: string; state: ChunkState; detail: string | null }[];
+    problems: ChunkOutcome[];
     costUsd: number;
   };
-
-export type ChunkState = 'ok' | 'empty' | 'malformed' | 'refused' | 'failed' | 'blocked' | 'cancelled';
 
 export interface ExtractorDeps {
   runs: RunsRepository;
@@ -58,6 +83,17 @@ const PURPOSE = 'extract';
 /** The answer is a list of the source's contents: roughly a third of it, never less than a page. */
 const OUTPUT_RATIO = 0.4;
 const MIN_TOKENS = 800;
+const FIRMER = '\n\nYour previous answer was not one JSON object. Reply with only the JSON object described above: '
+  + 'no explanation, no code fence, nothing before the opening brace or after the closing one.';
+
+interface Call {
+  runId: string;
+  status: RunStatus;
+  reply: string;
+  costUsd: number | null;
+  errorText: string | null;
+  explained: string | null;
+}
 
 export class Extractor {
   constructor(private readonly deps: ExtractorDeps) {}
@@ -84,100 +120,94 @@ export class Extractor {
 
     const gathered: Extracted[] = [];
     const dropped: { what: string; reason: string }[] = [];
-    const problems: Extract<ExtractEvent, { kind: 'done' }>['problems'] = [];
+    const problems: ChunkOutcome[] = [];
     let firstRunId: string | null = null;
     let cost = 0;
     let stopped = false;
 
     for (const [index, chunk] of chunks.entries()) {
+      const outcome: ChunkOutcome = {
+        index, label: chunk.label, state: 'ok', proposals: 0, costUsd: null, runId: null, detail: null, attempts: 0,
+      };
+      const finish = (state: ChunkState, detail: string | null = null) => {
+        outcome.state = state;
+        outcome.detail = detail;
+        if (state !== 'ok') problems.push(outcome);
+        return { kind: 'chunk' as const, ...outcome };
+      };
+
       if (stopped || signal.aborted) {
-        problems.push({ label: chunk.label, state: stopped ? 'blocked' : 'cancelled', detail: null });
-        yield { kind: 'chunk', index, label: chunk.label, state: stopped ? 'blocked' : 'cancelled', proposals: 0, costUsd: null };
-        continue;
-      }
-      try {
-        await guardSpend(this.deps, projectId, null, PURPOSE);
-      } catch (e) {
-        if (!(e instanceof SpendCapError)) throw e;
-        stopped = true;
-        problems.push({ label: chunk.label, state: 'blocked', detail: e.message });
-        yield { kind: 'chunk', index, label: chunk.label, state: 'blocked', proposals: 0, costUsd: null };
+        yield finish(stopped ? 'blocked' : 'cancelled', stopped ? 'not sent: the spend stop above' : null);
         continue;
       }
 
-      const prompt = renderExtractPrompt(chunk, types);
-      const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
-      const maxTokens = Math.max(MIN_TOKENS, Math.ceil(chunk.text.length / 4 * OUTPUT_RATIO))
+      const basePrompt = renderExtractPrompt(chunk, types);
+      let maxTokens = Math.max(MIN_TOKENS, Math.ceil(chunk.text.length / 4 * OUTPUT_RATIO))
         + profile.reasoningAllowance;
-      const runId = await this.deps.runs.start(projectId, {
-        sceneId: null, purpose: PURPOSE, provider: account.kind, model: profile.modelId,
-        params: {
-          maxTokens, temperature: 0, path: chunk.path, label: chunk.label, dataPolicy: account.dataPolicy,
-        },
-        briefJson: JSON.stringify({ label: chunk.label, words: chunk.words }),
-        promptRendered: prompt,
-      });
-      firstRunId ??= runId;
+      let prompt = basePrompt;
+      let result: ReturnType<typeof parseExtractReply> | null = null;
+      let last: Call | null = null;
 
-      const started = Date.now();
-      let raw = '';
-      let usage: { tokensIn: number; tokensOut: number; tokensReasoning: number } | null = null;
-      let servedBy: string | null = null;
-      let status: RunStatus = 'ok';
-      let errorText: string | null = null;
-      try {
-        for await (const delta of adapter.chat({
-          model: profile.modelId, messages, maxTokens, temperature: 0, dataPolicy: account.dataPolicy,
-        }, signal)) {
-          if (delta.kind === 'text') raw += delta.text;
-          else if (delta.kind === 'usage') {
-            usage = {
-              tokensIn: delta.promptTokens, tokensOut: delta.completionTokens,
-              tokensReasoning: delta.reasoningTokens,
-            };
-          } else if (delta.kind === 'done') {
-            servedBy = delta.servedBy;
-            status = delta.finishReason === 'length' ? 'truncated'
-              : delta.finishReason === 'cancelled' ? 'cancelled'
-                : delta.finishReason === 'content_filter' ? 'refused' : 'ok';
-          }
+      // At most two attempts: the first, and one more for the two states a
+      // firmer ask or more room can fix.
+      for (let attempt = 1; attempt <= 2 && !result; attempt++) {
+        try {
+          await guardSpend(this.deps, projectId, null, PURPOSE);
+        } catch (e) {
+          if (!(e instanceof SpendCapError)) throw e;
+          stopped = true;
+          last = null;
+          break;
         }
-      } catch (e) {
-        status = e instanceof ProviderError && e.code === 'refused' ? 'refused' : 'error';
-        errorText = (e as Error).message ?? String(e);
+        outcome.attempts = attempt;
+        last = await this.#call(
+          projectId, profile, account, adapter, chunk, prompt, maxTokens, attempt, signal);
+        outcome.runId = last.runId;
+        firstRunId ??= last.runId;
+        cost += last.costUsd ?? 0;
+        outcome.costUsd = (outcome.costUsd ?? 0) + (last.costUsd ?? 0);
+
+        if (last.status !== 'ok' && last.status !== 'truncated') break;
+        const parsed = parseExtractReply(last.reply, chunk, types);
+        if (!parsed.malformed) { result = parsed; break; }
+        if (attempt === 2) break;
+        // Cut off: twice the room, and the allowance the first answer just
+        // taught the profile. Wrong shape: the same ask, put more firmly.
+        if (last.status === 'truncated') {
+          const learned = (await this.deps.providers.listProfiles(projectId))
+            .find((p) => p.id === profile.id)?.reasoningAllowance ?? profile.reasoningAllowance;
+          maxTokens = maxTokens * 2 + learned;
+        } else {
+          prompt = basePrompt + FIRMER;
+        }
       }
 
-      const reply = stripReasoningBlocks(raw);
-      const parsed = status === 'ok' || status === 'truncated'
-        ? parseExtractReply(reply, chunk, types)
-        : { proposals: [], dropped: [], malformed: false };
-      const chunkCost = costOf(profile, usage);
-      cost += chunkCost ?? 0;
-      await this.deps.runs.finish(runId, {
-        outputText: reply || null,
-        tokensIn: usage?.tokensIn ?? null, tokensOut: usage?.tokensOut ?? null,
-        tokensReasoning: usage?.tokensReasoning ?? null,
-        costUsd: chunkCost, latencyMs: Date.now() - started, status, servedBy, errorText,
-      });
-      if (usage && usage.tokensReasoning > 0) {
-        await this.deps.providers.recordReasoning(profile.id, usage.tokensReasoning);
+      if (stopped && !last) {
+        yield finish('blocked', 'today\'s spend has reached the stop; nothing more was sent');
+        continue;
+      }
+      if (!last) { yield finish('failed', 'nothing was sent'); continue; }
+
+      if (last.status === 'error') { yield finish('failed', last.explained); continue; }
+      if (last.status === 'refused') { yield finish('refused', last.explained ?? 'the provider declined'); continue; }
+      if (last.status === 'cancelled') { yield finish('cancelled'); continue; }
+      if (!result) {
+        yield last.status === 'truncated'
+          ? finish('truncated', 'the answer was cut off before it finished, twice; a reasoning model may be spending '
+            + 'the room on thinking, or the section is too long for this model')
+          : finish('malformed', 'the model did not answer with one JSON object, even when asked again; '
+            + 'its reply is kept on the run');
+        continue;
       }
 
-      let state: ChunkState = 'ok';
-      if (status === 'error') state = 'failed';
-      else if (status === 'refused') state = 'refused';
-      else if (status === 'cancelled') state = 'cancelled';
-      else if (parsed.malformed) state = 'malformed';
-      else if (parsed.proposals.length === 0) state = 'empty';
-      if (state !== 'ok') {
-        problems.push({
-          label: chunk.label, state,
-          detail: state === 'malformed' ? 'the model did not answer in the shape asked for' : errorText,
-        });
-      }
-      gathered.push(...parsed.proposals);
-      dropped.push(...parsed.dropped);
-      yield { kind: 'chunk', index, label: chunk.label, state, proposals: parsed.proposals.length, costUsd: chunkCost };
+      gathered.push(...result.proposals);
+      dropped.push(...result.dropped);
+      outcome.proposals = result.proposals.length;
+      yield result.proposals.length === 0
+        ? finish('empty', result.dropped.length
+          ? `nothing usable: ${result.dropped.length} item${result.dropped.length === 1 ? '' : 's'} dropped, listed below`
+          : 'the model found nothing to propose in it')
+        : finish('ok');
     }
 
     const merged = mergeExtracted(gathered);
@@ -195,5 +225,65 @@ export class Extractor {
       kind: 'done', runId: stagedRun, proposals: merged.length,
       unverified: merged.filter((p) => !p.evidenceVerified).length, dropped, problems, costUsd: cost,
     };
+  }
+
+  /** One call, one `ai_run`, closed however it ends. */
+  async #call(
+    projectId: string, profile: ModelProfile, account: ProviderAccount, adapter: ProviderAdapter,
+    chunk: Chunk, prompt: string, maxTokens: number, attempt: number, signal: AbortSignal,
+  ): Promise<Call> {
+    const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
+    const runId = await this.deps.runs.start(projectId, {
+      sceneId: null, purpose: PURPOSE, provider: account.kind, model: profile.modelId,
+      params: {
+        maxTokens, temperature: 0, path: chunk.path, label: chunk.label, attempt,
+        dataPolicy: account.dataPolicy,
+      },
+      briefJson: JSON.stringify({ label: chunk.label, words: chunk.words, attempt }),
+      promptRendered: prompt,
+    });
+
+    const started = Date.now();
+    let raw = '';
+    let usage: { tokensIn: number; tokensOut: number; tokensReasoning: number } | null = null;
+    let servedBy: string | null = null;
+    let status: RunStatus = 'ok';
+    let errorText: string | null = null;
+    let explained: string | null = null;
+    try {
+      for await (const delta of adapter.chat({
+        model: profile.modelId, messages, maxTokens, temperature: 0, dataPolicy: account.dataPolicy,
+      }, signal)) {
+        if (delta.kind === 'text') raw += delta.text;
+        else if (delta.kind === 'usage') {
+          usage = {
+            tokensIn: delta.promptTokens, tokensOut: delta.completionTokens,
+            tokensReasoning: delta.reasoningTokens,
+          };
+        } else if (delta.kind === 'done') {
+          servedBy = delta.servedBy;
+          status = delta.finishReason === 'length' ? 'truncated'
+            : delta.finishReason === 'cancelled' ? 'cancelled'
+              : delta.finishReason === 'content_filter' ? 'refused' : 'ok';
+        }
+      }
+    } catch (e) {
+      status = e instanceof ProviderError && e.code === 'refused' ? 'refused' : 'error';
+      errorText = (e as Error).message ?? String(e);
+      explained = explainProviderError(e);
+    }
+
+    const reply = stripReasoningBlocks(raw);
+    const costUsd = costOf(profile, usage);
+    await this.deps.runs.finish(runId, {
+      outputText: reply || null,
+      tokensIn: usage?.tokensIn ?? null, tokensOut: usage?.tokensOut ?? null,
+      tokensReasoning: usage?.tokensReasoning ?? null,
+      costUsd, latencyMs: Date.now() - started, status, servedBy, errorText,
+    });
+    if (usage && usage.tokensReasoning > 0) {
+      await this.deps.providers.recordReasoning(profile.id, usage.tokensReasoning);
+    }
+    return { runId, status, reply, costUsd, errorText, explained };
   }
 }

@@ -9,7 +9,7 @@ import {
 import {
   EDITABLE, decisionKey, type Decisions, type ImportRun, type ProposalRow,
 } from '../data/importRepository';
-import type { ExtractEvent } from '../ai/extract';
+import type { ChunkOutcome, ExtractEvent } from '../ai/extract';
 import type { ExtractTypes } from '../domain/extract';
 import { NoModelError, SpendCapError } from '../ai/roles';
 import { explainProviderError } from '../ai/explain';
@@ -41,6 +41,7 @@ import type { EntityType } from '../data/codexRepository';
 
 type Step = 'choose' | 'map' | 'review' | 'done';
 type Progress = { total: number; done: number; label: string; found: number; tokens: number };
+type Outcome = ChunkOutcome;
 type Finished = Extract<ExtractEvent, { kind: 'done' }>;
 
 const DESTINATIONS = (types: string[]): { value: string; text: string }[] => [
@@ -84,6 +85,8 @@ export function ImportPage() {
   const [types, setTypes] = useState<EntityType[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [finished, setFinished] = useState<Finished | null>(null);
+  /** Every chunk's outcome as it lands, kept after the pass: what the writer reads when nothing came back. */
+  const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [needsModel, setNeedsModel] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -134,6 +137,7 @@ export function ImportPage() {
     setNote(null);
     setNeedsModel(false);
     setFinished(null);
+    setOutcomes([]);
     const forModel: ExtractTypes = {
       types: types.filter((t) => context.types.has(t.key)).map((t) => ({ key: t.key, label: t.label })),
       existing: context.existing,
@@ -143,6 +147,9 @@ export function ImportPage() {
         if (ev.kind === 'plan') {
           setProgress({ total: ev.chunks, done: 0, label: '', found: 0, tokens: ev.tokens });
         } else if (ev.kind === 'chunk') {
+          const { kind: _kind, ...outcome } = ev;
+          void _kind;
+          setOutcomes((o) => [...o, outcome]);
           setProgress((p) => p && {
             ...p, done: ev.index + 1, label: ev.label, found: p.found + ev.proposals,
           });
@@ -153,7 +160,7 @@ export function ImportPage() {
             await refresh(ev.runId);
             setStep('review');
           } else {
-            setNote('The model proposed nothing it could point to in these files.');
+            setNote('The model pass staged nothing. What happened to each file is listed under it.');
           }
         }
       }
@@ -368,6 +375,8 @@ export function ImportPage() {
                 {progress.label ? ` — ${progress.label}` : ''} · {progress.found} found so far
               </p>
             )}
+            {outcomes.length > 0 && <OutcomeLog outcomes={outcomes} />}
+            {finished && <ModelSummary finished={finished} />}
             <div className="mt-2 flex flex-wrap gap-3">
               {progress
                 ? (
@@ -604,6 +613,62 @@ function planLine(read: ReadResult, calls: number): string {
   return `${read.docs.length} file${read.docs.length === 1 ? '' : 's'} in ${calls} call${calls === 1 ? '' : 's'}, ${size} to the extract model.`;
 }
 
+const STATE_TEXT: Record<Outcome['state'], string> = {
+  ok: 'read', empty: 'nothing to propose', malformed: 'answer not in the shape asked for',
+  truncated: 'answer cut off', refused: 'declined', failed: 'failed', blocked: 'not sent — spend stop',
+  cancelled: 'not sent — stopped',
+};
+
+/** One line per chunk as it lands, with the model's own reply a click away when something went wrong. */
+function OutcomeLog({ outcomes }: { outcomes: Outcome[] }) {
+  return (
+    <ul className="mt-2 space-y-0.5 text-xs" data-testid="extract-log">
+      {outcomes.map((o) => (
+        <li key={o.index} data-state={o.state} className={o.state === 'ok' ? 'opacity-70' : ''}>
+          <span className="font-medium">{o.label}</span>
+          {' — '}
+          {STATE_TEXT[o.state]}
+          {o.state === 'ok' && `, ${o.proposals} thing${o.proposals === 1 ? '' : 's'}`}
+          {o.attempts > 1 && ` (${o.attempts} attempts)`}
+          {o.costUsd !== null && o.costUsd > 0 && ` · ${usd(o.costUsd)}`}
+          {o.detail && <span className="opacity-70"> — {o.detail}</span>}
+          {o.runId && o.state !== 'ok' && o.state !== 'blocked' && o.state !== 'cancelled' && (
+            <ModelReply runId={o.runId} />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** What the model actually said, from the run it was kept on. The thing a blank result never shows. */
+function ModelReply({ runId }: { runId: string }) {
+  const db = useDb();
+  const [reply, setReply] = useState<string | null | undefined>(undefined);
+  if (db.state !== 'ready') return null;
+  if (reply === undefined) {
+    return (
+      <>
+        {' '}
+        <button
+          onClick={() => void (async () => {
+            const run = await db.runs.get(runId);
+            setReply(run?.outputText ?? run?.errorText ?? null);
+          })()}
+          className="underline opacity-70">
+          show the model&rsquo;s answer
+        </button>
+      </>
+    );
+  }
+  return (
+    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-current/15 p-2 text-xs opacity-80"
+      data-testid="model-reply">
+      {reply === null ? '(the model sent nothing back)' : reply.slice(0, 2000)}{reply && reply.length > 2000 ? '…' : ''}
+    </pre>
+  );
+}
+
 /** What the model pass did, in one paragraph, problems named rather than counted. */
 function ModelSummary({ finished }: { finished: Finished }) {
   const { proposals, unverified, dropped, problems, costUsd } = finished;
@@ -624,7 +689,7 @@ function ModelSummary({ finished }: { finished: Finished }) {
       {problems.length > 0 && (
         <ul className="mt-0.5 list-disc pl-4">
           {problems.map((p, i) => (
-            <li key={i}>{p.label}: {p.state}{p.detail ? ` — ${p.detail}` : ''}</li>
+            <li key={i}>{p.label}: {STATE_TEXT[p.state]}{p.detail ? ` — ${p.detail}` : ''}</li>
           ))}
         </ul>
       )}
