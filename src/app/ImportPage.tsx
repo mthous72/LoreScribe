@@ -151,7 +151,9 @@ export function ImportPage() {
     setOutcomes([]);
     setLive(null);
     const forModel: ExtractTypes = {
-      types: types.filter((t) => context.types.has(t.key)).map((t) => ({ key: t.key, label: t.label })),
+      types: types.filter((t) => context.types.has(t.key)).map((t) => ({
+        key: t.key, label: t.label, attributes: t.attributes.map((a) => a.name),
+      })),
       existing: context.existing,
     };
     try {
@@ -766,7 +768,7 @@ function ProposalEditor({ proposal, types, busy, onSave, onDone }: {
   const set = (key: string, value: string) => setDraft((d) => ({ ...d, [key]: value }));
   const choices = (key: string): string[] | null =>
     key === 'typeKey' ? types.map((t) => t.key) : key === 'belief' ? BELIEFS : key === 'category' ? LAW_CATEGORIES : null;
-  const wide = (key: string) => key === 'statement' || key === 'ruleText' || key === 'summary';
+  const wide = (key: string) => key === 'statement' || key === 'ruleText' || key === 'summary' || key === 'description';
   return (
     <div className="space-y-2" data-testid="proposal-editor">
       {fields.map((key) => {

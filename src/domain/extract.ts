@@ -10,10 +10,17 @@
  *
  * Three commitments, because they are what make this a review and not a dump:
  *
- * - **Every item cites the file.** The model quotes the words it read; the
- *   quote is held against the text ([doc 12 §3](../../docs/12-algorithms.md)),
- *   and an item whose quote is not there is *unverified* — staged, shown, never
- *   accepted by default. Small models invent characters with confidence.
+ * - **Every item cites the file, and is written for the codex.** The model
+ *   quotes the words an item rests on — the quote is held against the text
+ *   ([doc 12 §3](../../docs/12-algorithms.md)), and an item whose quote is not
+ *   there is *unverified*: staged, shown, never accepted by default, because
+ *   small models invent characters with confidence. But the entry itself is
+ *   the model's writing, not a copy: a summary and a description in clean
+ *   present-tense prose that fit a bible entry, the type's own attribute
+ *   fields filled from what the file says, facts as one clear sentence each,
+ *   rules as instructions. A model call that only copied would be a worse
+ *   version of the rule-based lane; the point of paying for one is the
+ *   rewrite. The quote is what keeps the rewrite honest.
  * - **Types come from the project.** The model chooses from the entity types
  *   this project has. An item naming a type that is not there is dropped and
  *   counted rather than filed under a guess.
@@ -32,8 +39,8 @@ import { subtreeText, type SourceDoc, type SourceNode } from '../import/source';
 import type { ExistingEntity } from '../import/plan';
 
 export interface ExtractTypes {
-  /** Type keys this project has, with a label for the prompt. */
-  types: { key: string; label: string }[];
+  /** Type keys this project has, with a label and the attribute fields the model may fill. */
+  types: { key: string; label: string; attributes?: string[] }[];
   /** Normalised name or alias to the entity it belongs to. */
   existing: Map<string, ExistingEntity>;
 }
@@ -160,31 +167,48 @@ function splitParagraphs(text: string, maxWords: number): string[] {
  * this goes to the cheap role.
  */
 export function renderExtractPrompt(chunk: Chunk, types: ExtractTypes): string {
-  const typeList = types.types.map((t) => `${t.key} (${t.label})`).join(', ');
-  const known = [...new Set([...types.existing.values()].map((e) => e.name))].sort((a, b) => a.localeCompare(b, 'en'));
+  const typeList = types.types.map((t) => {
+    const fields = (t.attributes ?? []).filter(Boolean);
+    return `${t.key} (${t.label}${fields.length ? `; attribute fields: ${fields.join(', ')}` : ''})`;
+  }).join('\n  ');
+  const known = [...new Set([...types.existing.values()].map((e) => e.name))]
+    .sort((a, b) => a.localeCompare(b, 'en'));
   return [
-    'You are reading part of a novelist\'s story bible. List what it establishes, as data, and nothing it does not say.',
+    'You are turning part of a novelist\'s story bible into codex entries. Read the source, then WRITE the entries: '
+    + 'clean present-tense prose that fits a reference entry, not a copy of the source. Correct its typos, '
+    + 'resolve pronouns to names, drop its formatting, headings and asides, keep every concrete detail it '
+    + 'gives, and invent nothing it does not say.',
     '',
-    `ENTITY TYPES YOU MAY USE: ${typeList}`,
-    known.length ? `NAMES ALREADY IN THE CODEX (reuse them exactly when the text means the same person or thing): ${known.join(', ')}` : '',
+    'ENTITY TYPES YOU MAY USE, with the attribute fields each can carry:',
+    `  ${typeList}`,
+    known.length
+      ? `NAMES ALREADY IN THE CODEX (reuse them exactly when the text means the same person or thing): ${known.join(', ')}`
+      : '',
     '',
     `SOURCE (${chunk.label})`,
     chunk.text,
     '',
     'Answer with one JSON object and no other text:',
-    '{"entities": [{"name": "", "type": "<one of the types above>", "aliases": [""], "summary": "<one sentence>", '
-    + '"quote": "<words copied exactly from the source, at least twelve characters>", "confidence": 0.0}],',
-    ' "facts": [{"subject": "<entity name or empty>", "statement": "<one sentence, present tense>", '
-    + '"knownBy": [{"entity": "", "belief": "knows|suspects|believes_false|denies", "how": ""}], '
+    '{"entities": [{"name": "", "type": "<one of the types above>", "aliases": [""],',
+    '   "summary": "<one sentence that says who or what this is, as an encyclopedia entry begins>",',
+    '   "description": "<one to three paragraphs in your own clean prose, covering everything the source '
+    + 'establishes about it: role, history, appearance, relationships, contradictions>",',
+    '   "attributes": {"<a field from the type\'s list, or another concrete detail the source states>": "<value>"},',
+    '   "quote": "<the source\'s own words this entry rests on, copied exactly, at least twelve characters>", '
+    + '"confidence": 0.0}],',
+    ' "facts": [{"subject": "<entity name or empty>", "statement": "<one clear sentence, present tense, names not '
+    + 'pronouns>", "knownBy": [{"entity": "", "belief": "knows|suspects|believes_false|denies", "how": ""}], '
     + '"quote": "", "confidence": 0.0}],',
     ' "laws": [{"category": "style|canon|content", "title": "<a few words>", '
-    + '"rule": "<the rule as an instruction to a writer>", "quote": "", "confidence": 0.0}]}',
-    'Use an empty list for anything the source does not establish. Do not invent names, facts or rules.',
-  ].filter((line) => line !== null).join('\n');
+    + '"rule": "<the rule as an instruction to a writer, one or two sentences>", "quote": "", "confidence": 0.0}]}',
+    'Use an empty list for anything the source does not establish. Use an empty object for attributes the source '
+    + 'does not give. Do not invent names, facts or rules.',
+  ].filter((line) => line !== '').join('\n');
 }
 
 interface RawEntity {
-  name?: unknown; type?: unknown; aliases?: unknown; summary?: unknown; quote?: unknown; confidence?: unknown;
+  name?: unknown; type?: unknown; aliases?: unknown; summary?: unknown; description?: unknown;
+  attributes?: unknown; quote?: unknown; confidence?: unknown;
 }
 interface RawKnown { entity?: unknown; belief?: unknown; how?: unknown }
 interface RawFact {
@@ -198,6 +222,24 @@ interface RawReply { entities?: unknown; facts?: unknown; laws?: unknown }
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const list = <T>(v: unknown): T[] => (Array.isArray(v) ? v.filter((x): x is T => !!x && typeof x === 'object') : []);
 const BELIEFS = new Set(['knows', 'suspects', 'believes_false', 'denies']);
+/** Longer than this and the model is pasting the file back, not writing an entry. */
+const MAX_DESCRIPTION = 4000;
+const MAX_ATTRIBUTE = 400;
+
+/** The model's attribute object as the codex stores it: snake keys, string values, nothing empty. */
+export function readAttributes(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const key = k.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '');
+    const value = typeof v === 'string' ? v.trim()
+      : typeof v === 'number' || typeof v === 'boolean' ? String(v)
+        : Array.isArray(v) ? v.filter((x) => typeof x === 'string' || typeof x === 'number').join(', ')
+          : '';
+    if (key && value) out[key] = value.slice(0, MAX_ATTRIBUTE);
+  }
+  return out;
+}
 const LAW_CATEGORIES = new Set(['style', 'canon', 'content']);
 
 function clip(v: unknown): number {
@@ -249,10 +291,13 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
     }
     const { quote, verified } = evidence(e.quote);
     const existing = types.existing.get(nameKey(name));
+    const description = str(e.description);
     proposals.push({
       table: 'entity', op: existing ? 'update' : 'new',
       payload: {
-        name, typeKey: existing?.typeKey ?? type, summary: str(e.summary), description: null, attributes: {},
+        name, typeKey: existing?.typeKey ?? type, summary: str(e.summary),
+        description: description ? description.slice(0, MAX_DESCRIPTION) : null,
+        attributes: readAttributes(e.attributes),
       },
       rationale: `${from} — the model read it as a ${type}${existing ? ', already in your codex' : ''}`,
       confidence: clip(e.confidence), evidenceQuote: quote, evidenceVerified: verified,
@@ -323,7 +368,8 @@ function firstWords(text: string, n = 6): string {
 
 /**
  * Merge proposals from many chunks: one entity per name, with the longest
- * summary and every alias; knowledge and facts left as they are, since two
+ * summary and description, every attribute, and every alias; knowledge and
+ * facts left as they are, since two
  * chunks saying the same thing twice is what a reviewer should see.
  */
 export function mergeExtracted(all: readonly Extracted[]): Extracted[] {
@@ -338,6 +384,13 @@ export function mergeExtracted(all: readonly Extracted[]): Extracted[] {
       const mine = String(p.payload.summary ?? '');
       const theirs = String(seen.payload.summary ?? '');
       if (mine.length > theirs.length) seen.payload.summary = mine;
+      const myDesc = String(p.payload.description ?? '');
+      const theirDesc = String(seen.payload.description ?? '');
+      if (myDesc.length > theirDesc.length) seen.payload.description = myDesc;
+      seen.payload.attributes = {
+        ...(seen.payload.attributes as Record<string, string>),
+        ...(p.payload.attributes as Record<string, string>),
+      };
       seen.confidence = Math.max(seen.confidence, p.confidence);
       if (!seen.evidenceVerified && p.evidenceVerified) {
         seen.evidenceVerified = true;

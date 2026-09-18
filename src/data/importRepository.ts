@@ -91,7 +91,7 @@ export interface PreparedProposal {
 
 /** What a writer may change on a proposal before it is applied, by table. */
 export const EDITABLE: Record<string, string[]> = {
-  entity: ['name', 'typeKey', 'summary'],
+  entity: ['name', 'typeKey', 'summary', 'description'],
   entity_alias: ['alias'],
   fact: ['statement'],
   fact_knowledge: ['belief', 'learnedHow'],
@@ -354,7 +354,7 @@ export class ImportRepository {
     for (const [key, value] of Object.entries(patch)) {
       if (!allowed.has(key)) throw new Error(`${key} is not something an import can change on a ${String(row[0])}`);
       const clean = typeof value === 'string' ? value.trim() : value;
-      if (typeof clean === 'string' && !clean && key !== 'learnedHow' && key !== 'summary') {
+      if (typeof clean === 'string' && !clean && key !== 'learnedHow' && key !== 'summary' && key !== 'description') {
         throw new Error(`${key} cannot be empty`);
       }
       changed[key] = typeof clean === 'string' && !clean ? null : clean;

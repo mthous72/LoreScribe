@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  chunkDocument, estimateTokens, mergeExtracted, parseExtractReply, renderExtractPrompt,
+  chunkDocument, estimateTokens, mergeExtracted, parseExtractReply, readAttributes, renderExtractPrompt,
   type Chunk, type ExtractTypes,
 } from './extract';
 import { parseMarkdown } from '../import/markdown';
@@ -8,7 +8,10 @@ import { parseMarkdown } from '../import/markdown';
 /** Fixtures invented — D14. */
 
 const types: ExtractTypes = {
-  types: [{ key: 'character', label: 'Character' }, { key: 'location', label: 'Location' }],
+  types: [
+    { key: 'character', label: 'Character', attributes: ['age', 'occupation', 'want', 'lie'] },
+    { key: 'location', label: 'Location' },
+  ],
   existing: new Map([['renn', { id: 'e-renn', name: 'Renn', typeKey: 'character' }]]),
 };
 
@@ -48,9 +51,14 @@ describe('chunkDocument', () => {
 });
 
 describe('renderExtractPrompt', () => {
-  it('offers only the project types, names the known entities, and asks for one JSON object', () => {
+  it('offers only the project types with their fields, names the known entities, and asks for one JSON object', () => {
     const p = renderExtractPrompt(chunk, types);
-    expect(p).toContain('ENTITY TYPES YOU MAY USE: character (Character), location (Location)');
+    expect(p).toContain('character (Character; attribute fields: age, occupation, want, lie)');
+    expect(p).toContain('location (Location)');
+    // The entry is the model's writing, anchored by a quote.
+    expect(p).toContain('WRITE the entries');
+    expect(p).toContain('resolve pronouns to names');
+    expect(p).toContain('"description": "<one to three paragraphs in your own clean prose');
     expect(p).toContain('NAMES ALREADY IN THE CODEX (reuse them exactly when the text means the same person or thing): Renn');
     expect(p).toContain('SOURCE (cast/ilva.md)\n# Ilva'.replace('# Ilva', 'Ilva').slice(0, 20));
     expect(p).toContain('Answer with one JSON object and no other text:');
@@ -61,7 +69,12 @@ describe('renderExtractPrompt', () => {
 describe('parseExtractReply', () => {
   const reply = `Here you go:\n\`\`\`json\n${JSON.stringify({
     entities: [
-      { name: 'Ilva', type: 'Character', aliases: ['the Warden', 'Ilva'], summary: 'Keeper of the seal.', quote: 'She keeps the seal, and the gate behind it.', confidence: 0.95 },
+      {
+        name: 'Ilva', type: 'Character', aliases: ['the Warden', 'Ilva'], summary: 'Keeper of the seal.',
+        description: 'Ilva keeps the seal and the gate behind it. Renn calls her the Warden.\n\nShe wants the throne.',
+        attributes: { Want: 'the throne', 'Known as': 'the Warden', age: 34, empty: '', nested: { a: 1 }, tags: ['a', 'b'] },
+        quote: 'She keeps the seal, and the gate behind it.', confidence: 0.95,
+      },
       { name: 'Renn', type: 'character', aliases: [], summary: 'Calls Ilva the Warden.', quote: 'Renn calls her the Warden', confidence: 0.8 },
       { name: 'The Seal', type: 'item', summary: 'A fake.', quote: 'The seal is a fake', confidence: 0.7 },
       { name: 'Maren', type: 'character', summary: 'Invented.', quote: 'Maren walked in from the rain', confidence: 0.9 },
@@ -84,9 +97,16 @@ describe('parseExtractReply', () => {
 
     const [ilva, alias, renn, maren, fact, known, want, law] = r.proposals;
     expect(ilva).toMatchObject({
-      op: 'new', payload: { name: 'Ilva', typeKey: 'character', summary: 'Keeper of the seal.' },
+      op: 'new',
+      payload: {
+        name: 'Ilva', typeKey: 'character', summary: 'Keeper of the seal.',
+        description: 'Ilva keeps the seal and the gate behind it. Renn calls her the Warden.\n\nShe wants the throne.',
+        attributes: { want: 'the throne', known_as: 'the Warden', age: '34', tags: 'a, b' },
+      },
       confidence: 0.95, evidenceVerified: true, evidenceQuote: 'She keeps the seal, and the gate behind it.',
     });
+    // Renn came with no description or attributes: nulls and an empty object, never invented.
+    expect(renn!.payload).toMatchObject({ description: null, attributes: {} });
     expect(ilva!.rationale).toBe('from cast/ilva.md — the model read it as a character');
     // The alias that repeats the name is dropped; the other is a proposal of its own.
     expect(alias).toMatchObject({ table: 'entity_alias', payload: { entityName: 'Ilva', alias: 'the Warden' } });
@@ -129,19 +149,32 @@ describe('parseExtractReply', () => {
   });
 });
 
+describe('readAttributes', () => {
+  it('normalises keys, stringifies scalars and lists, drops empties and nests', () => {
+    expect(readAttributes({ ' Voice profile ': 'clipped', Age: 34, alive: true, none: '', deep: { x: 1 }, list: [1, 'b'] }))
+      .toEqual({ voice_profile: 'clipped', age: '34', alive: 'true', list: '1, b' });
+    expect(readAttributes(null)).toEqual({});
+    expect(readAttributes(['a'])).toEqual({});
+    expect(readAttributes({ long: 'x'.repeat(500) }).long).toHaveLength(400);
+  });
+});
+
 describe('mergeExtracted', () => {
-  it('folds one entity per name across chunks, keeping the longer summary and any verified quote', () => {
+  it('folds one entity per name across chunks, keeping the longer summary and description, every attribute, and any verified quote', () => {
     const a = parseExtractReply(JSON.stringify({ entities: [
-      { name: 'Ilva', type: 'character', summary: 'Short.', quote: 'nowhere in the text at all', confidence: 0.4 },
-      { name: 'ilva', type: 'character', aliases: ['the Warden'], summary: 'Keeper of the seal and the gate.', quote: 'She keeps the seal', confidence: 0.9 },
+      { name: 'Ilva', type: 'character', summary: 'Short.', description: 'A long description of Ilva from chunk one.', attributes: { want: 'the throne' }, quote: 'nowhere in the text at all', confidence: 0.4 },
+      { name: 'ilva', type: 'character', aliases: ['the Warden'], summary: 'Keeper of the seal and the gate.', description: 'Short.', attributes: { lie: 'I am owed it' }, quote: 'She keeps the seal', confidence: 0.9 },
     ], facts: [
       { statement: 'Same fact.', quote: 'Want: the throne.' }, { statement: 'Same fact.', quote: 'Want: the throne.' },
     ] }), chunk, types);
     const merged = mergeExtracted(a.proposals);
     expect(merged.filter((p) => p.table === 'entity')).toHaveLength(1);
     expect(merged[0]).toMatchObject({
-      payload: { name: 'Ilva', summary: 'Keeper of the seal and the gate.' }, confidence: 0.9,
-      evidenceVerified: true, evidenceQuote: 'She keeps the seal',
+      payload: {
+        name: 'Ilva', summary: 'Keeper of the seal and the gate.',
+        description: 'A long description of Ilva from chunk one.', attributes: { want: 'the throne', lie: 'I am owed it' },
+      },
+      confidence: 0.9, evidenceVerified: true, evidenceQuote: 'She keeps the seal',
     });
     expect(merged.filter((p) => p.table === 'entity_alias')).toHaveLength(1);
     // Facts are not folded: two chunks saying one thing twice is for the reviewer to see.
