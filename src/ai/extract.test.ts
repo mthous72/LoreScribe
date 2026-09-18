@@ -251,3 +251,32 @@ describe('groupOutcomes', () => {
     expect(groupOutcomes([])).toEqual([]);
   });
 });
+
+describe('what is on the wire', () => {
+  it('says when each call goes out and what has come back, thinking included', async () => {
+    const { adapter } = fake(() => [
+      { kind: 'reasoning', text: 'Let me read this.' },
+      { kind: 'text', text: '{"entities": [{"name": "Ilva", "type": "character", ' },
+      { kind: 'text', text: '"summary": "x", "quote": "keeps the seal, and the gate"}]}' },
+      { kind: 'usage', promptTokens: 400, completionTokens: 80, reasoningTokens: 20 },
+      { kind: 'done', finishReason: 'stop', servedBy: 'Cheap' },
+    ]);
+    const events = await run(adapter);
+    const kinds = events.map((e) => e.kind);
+    expect(kinds[0]).toBe('plan');
+    expect(kinds.filter((k) => k === 'sending')).toHaveLength(2);
+    // Each chunk: sending, at least one receiving, then its outcome — in that order.
+    const first = events.findIndex((e) => e.kind === 'sending');
+    const firstChunk = events.findIndex((e) => e.kind === 'chunk');
+    const receiving = events.slice(first, firstChunk).filter((e) => e.kind === 'receiving');
+    expect(receiving.length).toBeGreaterThanOrEqual(1);
+    expect(events[first]).toMatchObject({
+      kind: 'sending', index: 0, label: 'cast/ilva.md', attempt: 1, chars: 0, reasoning: false,
+    });
+    expect((events[first] as { words: number; maxTokens: number }).words).toBeGreaterThan(0);
+    expect((events[first] as { maxTokens: number }).maxTokens).toBeGreaterThanOrEqual(800);
+    // The first thing back was reasoning: the screen can say the model is thinking before any text.
+    expect(receiving[0]).toMatchObject({ kind: 'receiving', reasoning: true, chars: 0 });
+    expect(events[firstChunk]).toMatchObject({ kind: 'chunk', state: 'ok', proposals: 1 });
+  });
+});

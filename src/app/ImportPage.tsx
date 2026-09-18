@@ -9,7 +9,7 @@ import {
 import {
   EDITABLE, decisionKey, type Decisions, type ImportRun, type ProposalRow,
 } from '../data/importRepository';
-import { groupOutcomes, type ChunkOutcome, type ExtractEvent } from '../ai/extract';
+import { groupOutcomes, type ChunkOutcome, type ExtractEvent, type LiveCall } from '../ai/extract';
 import type { ExtractTypes } from '../domain/extract';
 import { NoModelError, SpendCapError } from '../ai/roles';
 import { explainProviderError } from '../ai/explain';
@@ -42,6 +42,7 @@ import type { EntityType } from '../data/codexRepository';
 type Step = 'choose' | 'map' | 'review' | 'done';
 type Progress = { total: number; done: number; label: string; found: number; tokens: number };
 type Outcome = ChunkOutcome;
+type Live = LiveCall & { phase: 'sending' | 'receiving'; startedAt: number };
 type Finished = Extract<ExtractEvent, { kind: 'done' }>;
 
 const DESTINATIONS = (types: string[]): { value: string; text: string }[] => [
@@ -87,6 +88,9 @@ export function ImportPage() {
   const [finished, setFinished] = useState<Finished | null>(null);
   /** Every chunk's outcome as it lands, kept after the pass: what the writer reads when nothing came back. */
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
+  /** The call on the wire right now, and a clock so a slow model is seen to be slow rather than stuck. */
+  const [live, setLive] = useState<Live | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [needsModel, setNeedsModel] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -123,6 +127,13 @@ export function ImportPage() {
   // A read in flight belongs to this screen.
   useEffect(() => () => abort.current?.abort(), []);
 
+  // The elapsed clock, only while something is on the wire.
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [live]);
+
   const refresh = useCallback(async (id: string) => {
     if (db.state !== 'ready') return;
     setProposals(await db.imports.listProposals(id));
@@ -138,6 +149,7 @@ export function ImportPage() {
     setNeedsModel(false);
     setFinished(null);
     setOutcomes([]);
+    setLive(null);
     const forModel: ExtractTypes = {
       types: types.filter((t) => context.types.has(t.key)).map((t) => ({ key: t.key, label: t.label })),
       existing: context.existing,
@@ -146,7 +158,17 @@ export function ImportPage() {
       for await (const ev of db.extractor.extract(projectId, read.docs, forModel, ctl.signal)) {
         if (ev.kind === 'plan') {
           setProgress({ total: ev.chunks, done: 0, label: '', found: 0, tokens: ev.tokens });
+        } else if (ev.kind === 'sending') {
+          const { kind: _k, ...call } = ev;
+          void _k;
+          setLive({ ...call, phase: 'sending', startedAt: Date.now() });
+          setNow(Date.now());
+        } else if (ev.kind === 'receiving') {
+          const { kind: _k, ...call } = ev;
+          void _k;
+          setLive((l) => ({ ...call, phase: 'receiving', startedAt: l?.startedAt ?? Date.now() }));
         } else if (ev.kind === 'chunk') {
+          setLive(null);
           const { kind: _kind, ...outcome } = ev;
           void _kind;
           setOutcomes((o) => [...o, outcome]);
@@ -171,6 +193,7 @@ export function ImportPage() {
     } finally {
       setBusy(false);
       setProgress(null);
+      setLive(null);
       abort.current = null;
       setGeneration((g) => g + 1);
     }
@@ -371,8 +394,21 @@ export function ImportPage() {
             </p>
             {progress && (
               <p className="mt-2 text-xs" data-testid="extract-progress" aria-live="polite">
-                Reading {progress.done} of {progress.total}
-                {progress.label ? ` — ${progress.label}` : ''} · {progress.found} found so far
+                {progress.done} of {progress.total} read · {progress.found} found so far
+              </p>
+            )}
+            {live && (
+              <p className="mt-1 text-xs opacity-80" data-testid="extract-live" data-phase={live.phase}>
+                <span className="font-medium">{live.label}</span>
+                {live.phase === 'sending'
+                  ? ` — sent, waiting for the first word (${live.words.toLocaleString()} words, room for ${live.maxTokens.toLocaleString()} tokens)`
+                  : ` — ${live.reasoning && live.chars === 0 ? 'the model is thinking' : 'receiving'}`
+                    + (live.chars > 0 ? `, ${live.chars.toLocaleString()} characters so far` : '')}
+                {live.attempt > 1 && ` · attempt ${live.attempt} of 2`}
+                {` · ${Math.max(0, Math.round((now - live.startedAt) / 1000))}s`}
+                {now - live.startedAt > 45_000 && (
+                  <span className="opacity-70"> — slow, but alive; reasoning models can take a minute or two a file</span>
+                )}
               </p>
             )}
             {outcomes.length > 0 && <OutcomeLog outcomes={outcomes} />}

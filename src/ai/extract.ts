@@ -56,8 +56,26 @@ export interface ChunkOutcome {
   attempts: number;
 }
 
+/** What is on the wire right now, so a slow model never looks like a stuck one. */
+export interface LiveCall {
+  index: number;
+  label: string;
+  attempt: number;
+  /** Words of source in this chunk, and the room given for the answer. */
+  words: number;
+  maxTokens: number;
+  /** Characters of answer received so far, reasoning excluded. */
+  chars: number;
+  /** The model has sent reasoning — it is thinking, not silent. */
+  reasoning: boolean;
+}
+
 export type ExtractEvent =
   | { kind: 'plan'; chunks: number; files: number; tokens: number }
+  /** A call has just gone out. */
+  | ({ kind: 'sending' } & LiveCall)
+  /** Something has come back; sent at most a few times a second. */
+  | ({ kind: 'receiving' } & LiveCall)
   | ({ kind: 'chunk' } & ChunkOutcome)
   | {
     kind: 'done';
@@ -83,6 +101,8 @@ const PURPOSE = 'extract';
 /** The answer is a list of the source's contents: roughly a third of it, never less than a page. */
 const OUTPUT_RATIO = 0.4;
 const MIN_TOKENS = 800;
+/** How often at most a `receiving` event goes out while an answer streams. */
+const RECEIVING_EVERY_MS = 400;
 const FIRMER = '\n\nYour previous answer was not one JSON object. Reply with only the JSON object described above: '
   + 'no explanation, no code fence, nothing before the opening brace or after the closing one.';
 
@@ -160,8 +180,13 @@ export class Extractor {
           break;
         }
         outcome.attempts = attempt;
-        last = await this.#call(
-          projectId, profile, account, adapter, chunk, prompt, maxTokens, attempt, signal);
+        const call = this.#call(
+          projectId, profile, account, adapter, chunk, prompt, maxTokens, attempt, index, signal);
+        // The call is a generator so its progress can be yielded live; its
+        // return value is the closed call.
+        let step = await call.next();
+        while (!step.done) { yield step.value; step = await call.next(); }
+        last = step.value;
         outcome.runId = last.runId;
         firstRunId ??= last.runId;
         cost += last.costUsd ?? 0;
@@ -227,12 +252,16 @@ export class Extractor {
     };
   }
 
-  /** One call, one `ai_run`, closed however it ends. */
-  async #call(
+  /** One call, one `ai_run`, closed however it ends; what is on the wire, yielded as it happens. */
+  async *#call(
     projectId: string, profile: ModelProfile, account: ProviderAccount, adapter: ProviderAdapter,
-    chunk: Chunk, prompt: string, maxTokens: number, attempt: number, signal: AbortSignal,
-  ): Promise<Call> {
+    chunk: Chunk, prompt: string, maxTokens: number, attempt: number, index: number, signal: AbortSignal,
+  ): AsyncGenerator<ExtractEvent, Call> {
     const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
+    const live: LiveCall = {
+      index, label: chunk.label, attempt, words: chunk.words, maxTokens, chars: 0, reasoning: false,
+    };
+    yield { kind: 'sending', ...live };
     const runId = await this.deps.runs.start(projectId, {
       sceneId: null, purpose: PURPOSE, provider: account.kind, model: profile.modelId,
       params: {
@@ -250,12 +279,25 @@ export class Extractor {
     let status: RunStatus = 'ok';
     let errorText: string | null = null;
     let explained: string | null = null;
+    let lastSent = 0;
     try {
       for await (const delta of adapter.chat({
         model: profile.modelId, messages, maxTokens, temperature: 0, dataPolicy: account.dataPolicy,
       }, signal)) {
-        if (delta.kind === 'text') raw += delta.text;
-        else if (delta.kind === 'usage') {
+        if (delta.kind === 'text') {
+          raw += delta.text;
+          live.chars = raw.length;
+        } else if (delta.kind === 'reasoning') {
+          live.reasoning = true;
+        }
+        if (delta.kind === 'text' || delta.kind === 'reasoning') {
+          const now = Date.now();
+          if (now - lastSent >= RECEIVING_EVERY_MS || lastSent === 0) {
+            lastSent = now;
+            yield { kind: 'receiving', ...live };
+          }
+        }
+        if (delta.kind === 'usage') {
           usage = {
             tokensIn: delta.promptTokens, tokensOut: delta.completionTokens,
             tokensReasoning: delta.reasoningTokens,
