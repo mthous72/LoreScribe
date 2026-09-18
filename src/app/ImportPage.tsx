@@ -9,7 +9,7 @@ import {
 import {
   EDITABLE, decisionKey, type Decisions, type ImportRun, type ProposalRow,
 } from '../data/importRepository';
-import type { ChunkOutcome, ExtractEvent } from '../ai/extract';
+import { groupOutcomes, type ChunkOutcome, type ExtractEvent } from '../ai/extract';
 import type { ExtractTypes } from '../domain/extract';
 import { NoModelError, SpendCapError } from '../ai/roles';
 import { explainProviderError } from '../ai/explain';
@@ -619,24 +619,40 @@ const STATE_TEXT: Record<Outcome['state'], string> = {
   cancelled: 'not sent — stopped',
 };
 
-/** One line per chunk as it lands, with the model's own reply a click away when something went wrong. */
+/**
+ * One line per file that was read, and one line per *reason* for the rest:
+ * eighteen files refused for the same reason is one thing to read, with the
+ * files named under it and the model's own reply a click away.
+ */
 function OutcomeLog({ outcomes }: { outcomes: Outcome[] }) {
   return (
-    <ul className="mt-2 space-y-0.5 text-xs" data-testid="extract-log">
-      {outcomes.map((o) => (
-        <li key={o.index} data-state={o.state} className={o.state === 'ok' ? 'opacity-70' : ''}>
-          <span className="font-medium">{o.label}</span>
-          {' — '}
-          {STATE_TEXT[o.state]}
-          {o.state === 'ok' && `, ${o.proposals} thing${o.proposals === 1 ? '' : 's'}`}
-          {o.attempts > 1 && ` (${o.attempts} attempts)`}
-          {o.costUsd !== null && o.costUsd > 0 && ` · ${usd(o.costUsd)}`}
-          {o.detail && <span className="opacity-70"> — {o.detail}</span>}
-          {o.runId && o.state !== 'ok' && o.state !== 'blocked' && o.state !== 'cancelled' && (
-            <ModelReply runId={o.runId} />
-          )}
-        </li>
-      ))}
+    <ul className="mt-2 space-y-1 text-xs" data-testid="extract-log">
+      {groupOutcomes(outcomes).map((g) => {
+        const first = g.outcomes[0]!;
+        const many = g.outcomes.length > 1;
+        const cost = g.outcomes.reduce((n, o) => n + (o.costUsd ?? 0), 0);
+        const attempts = Math.max(...g.outcomes.map((o) => o.attempts));
+        const withReply = g.outcomes.find((o) => o.runId)
+          && g.state !== 'ok' && g.state !== 'blocked' && g.state !== 'cancelled';
+        return (
+          <li key={`${g.state}-${first.index}`} data-state={g.state} data-files={g.outcomes.length}
+            className={g.state === 'ok' ? 'opacity-70' : ''}>
+            <span className="font-medium">
+              {many ? `${g.outcomes.length} files` : first.label}
+            </span>
+            {' — '}
+            {STATE_TEXT[g.state]}
+            {g.state === 'ok' && `, ${first.proposals} thing${first.proposals === 1 ? '' : 's'}`}
+            {attempts > 1 && ` (${attempts} attempts)`}
+            {cost > 0 && ` · ${usd(cost)}`}
+            {g.detail && <span className="opacity-70"> — {g.detail}</span>}
+            {withReply && <ModelReply runId={g.outcomes.find((o) => o.runId)!.runId!} />}
+            {many && (
+              <span className="block pl-3 opacity-60">{g.outcomes.map((o) => o.label).join(' · ')}</span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -688,8 +704,11 @@ function ModelSummary({ finished }: { finished: Finished }) {
       )}
       {problems.length > 0 && (
         <ul className="mt-0.5 list-disc pl-4">
-          {problems.map((p, i) => (
-            <li key={i}>{p.label}: {STATE_TEXT[p.state]}{p.detail ? ` — ${p.detail}` : ''}</li>
+          {groupOutcomes(problems).map((g, i) => (
+            <li key={i}>
+              {g.outcomes.length > 1 ? `${g.outcomes.length} files` : g.outcomes[0]!.label}: {STATE_TEXT[g.state]}
+              {g.detail ? ` — ${g.detail}` : ''}
+            </li>
           ))}
         </ul>
       )}

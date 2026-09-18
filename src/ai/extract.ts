@@ -287,3 +287,31 @@ export class Extractor {
     return { runId, status, reply, costUsd, errorText, explained };
   }
 }
+
+/** Outcomes that read as one line: read files each on their own, the failures folded by reason. */
+export interface OutcomeGroup {
+  state: ChunkState;
+  detail: string | null;
+  outcomes: ChunkOutcome[];
+}
+
+/**
+ * Fold outcomes with the same state and the same reason into one group, in
+ * first-seen order. Eighteen files refused for one reason is one thing to
+ * read, not eighteen; a file that was read keeps its own line, because its
+ * count is the news.
+ */
+export function groupOutcomes(outcomes: readonly ChunkOutcome[]): OutcomeGroup[] {
+  const groups: OutcomeGroup[] = [];
+  const byKey = new Map<string, OutcomeGroup>();
+  for (const o of outcomes) {
+    if (o.state === 'ok') { groups.push({ state: o.state, detail: o.detail, outcomes: [o] }); continue; }
+    const key = `${o.state}\u0000${o.detail ?? ''}`;
+    const seen = byKey.get(key);
+    if (seen) { seen.outcomes.push(o); continue; }
+    const group = { state: o.state, detail: o.detail, outcomes: [o] };
+    byKey.set(key, group);
+    groups.push(group);
+  }
+  return groups;
+}

@@ -9,7 +9,7 @@ import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { PlanRepository } from '../data/planRepository';
 import { ImportRepository } from '../data/importRepository';
 import { EncryptedCredentialStore, MemoryVault } from './credentials';
-import { Extractor, type ChunkOutcome, type ExtractEvent } from './extract';
+import { Extractor, groupOutcomes, type ChunkOutcome, type ExtractEvent } from './extract';
 import { NoModelError } from './roles';
 import { ProviderError, type ChatDelta, type ChatRequest, type ProviderAdapter } from './provider';
 import { parseMarkdown } from '../import/markdown';
@@ -228,5 +228,26 @@ describe('the extraction lane', () => {
     const d = done(await run(adapter, ctl.signal));
     expect(d.proposals).toBe(1);
     expect(d.problems.map((p) => [p.label, p.state, p.detail])).toEqual([['cast/renn.md', 'cancelled', null]]);
+  });
+});
+
+describe('groupOutcomes', () => {
+  const o = (index: number, state: ChunkOutcome['state'], detail: string | null, proposals = 0): ChunkOutcome => ({
+    index, label: `f${index}.md`, state, proposals, costUsd: null, runId: `r${index}`, detail, attempts: 1,
+  });
+  it('folds failures with one reason into one group, keeps each read file, and holds first-seen order', () => {
+    const groups = groupOutcomes([
+      o(0, 'failed', 'no endpoints'), o(1, 'ok', null, 3), o(2, 'failed', 'no endpoints'),
+      o(3, 'ok', null, 1), o(4, 'malformed', 'wrong shape'), o(5, 'failed', 'declined by policy'),
+      o(6, 'failed', 'no endpoints'),
+    ]);
+    expect(groups.map((g) => [g.state, g.detail, g.outcomes.map((x) => x.index)])).toEqual([
+      ['failed', 'no endpoints', [0, 2, 6]],
+      ['ok', null, [1]],
+      ['ok', null, [3]],
+      ['malformed', 'wrong shape', [4]],
+      ['failed', 'declined by policy', [5]],
+    ]);
+    expect(groupOutcomes([])).toEqual([]);
   });
 });
