@@ -415,4 +415,44 @@ describe('prepared proposals — the extraction lane', () => {
     expect(await all('SELECT name FROM entity')).toEqual([['Ilva Vell']]);
     await expect(repo.edit(entity!.id, { name: 'Late' })).rejects.toThrow(/already been applied/);
   });
+
+  it('applies a relationship between two staged entries by name, and undo takes it back', async () => {
+    const entity = (name: string) => ({
+      table: 'entity', op: 'new' as const, rationale: 'r',
+      payload: { name, typeKey: 'character', summary: null, description: null, attributes: {} },
+    });
+    const { runId } = await repo.stagePrepared(PROJECT, [
+      entity('Ilva'), entity('Renn'),
+      { table: 'relationship', op: 'new', rationale: 'r', payload: { fromName: 'Renn', toName: 'Ilva', kind: 'serves', notes: 'He counts for her.' } },
+      { table: 'relationship', op: 'new', rationale: 'r', payload: { fromName: 'Renn', toName: 'Nobody', kind: 'owes' } },
+    ]);
+    await repo.acceptAll(runId);
+    const result = await repo.apply(PROJECT, runId);
+    expect(result.applied).toBe(3);
+    expect(result.failed.map((f) => f.reason)).toEqual(['no entity named "Nobody"']);
+    const rows = await all('SELECT kind, notes FROM entity_relationship WHERE deleted_at IS NULL');
+    expect(rows).toEqual([['serves', 'He counts for her.']]);
+    await repo.undo(runId);
+    expect(await all('SELECT COUNT(*) FROM entity_relationship WHERE deleted_at IS NULL')).toEqual([[0]]);
+  });
+
+  it('adds proposals to a staged run, accepting the verified ones, and refuses once it is applied', async () => {
+    const { runId } = await repo.stagePrepared(PROJECT, [{
+      table: 'entity', op: 'new', rationale: 'r',
+      payload: { name: 'Ilva', typeKey: 'character', summary: null, description: null, attributes: {} },
+    }]);
+    await repo.acceptAll(runId);
+    const added = await repo.addPrepared(runId, [
+      { table: 'note', op: 'new', rationale: 'kept from a recommendation', payload: { title: 'The oath', body: 'verse' } },
+      { table: 'entity', op: 'new', rationale: 'r', evidenceVerified: false,
+        payload: { name: 'Maren', typeKey: 'character', summary: null, description: null, attributes: {} } },
+    ]);
+    expect(added).toBe(2);
+    expect((await repo.listProposals(runId)).map((p) => [p.targetTable, p.status]))
+      .toEqual([['entity', 'accepted'], ['note', 'accepted'], ['entity', 'pending']]);
+    await expect(repo.addPrepared('nope', [])).rejects.toThrow(/no such import run/);
+    await repo.apply(PROJECT, runId);
+    await expect(repo.addPrepared(runId, [{ table: 'note', op: 'new', rationale: 'r', payload: { title: 'x', body: 'y' } }]))
+      .rejects.toThrow(/already been applied/);
+  });
 });

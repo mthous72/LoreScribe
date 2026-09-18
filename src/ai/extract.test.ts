@@ -102,8 +102,12 @@ describe('the extraction lane', () => {
           { name: 'Ilva', type: 'character', summary: 'Keeper.', quote: 'keeps the seal, and the gate', confidence: 0.9 },
           { name: 'Maren', type: 'character', summary: 'Invented.', quote: 'Maren came in from the rain', confidence: 0.8 },
         ] })
-        : answer({ entities: [{ name: 'Renn', type: 'character', summary: 'Counts crates.', quote: 'counts the crates', confidence: 0.7 }],
-          facts: [{ subject: 'Renn', statement: 'Renn says nothing.', quote: 'says nothing', confidence: 0.6 }] });
+        : answer({ entities: [
+          { name: 'Renn', type: 'character', summary: 'Counts crates.', quote: 'counts the crates', confidence: 0.7 },
+          { name: 'The Counting House', type: 'Institution', summary: 'Where Renn counts.', quote: 'counts the crates' },
+        ],
+        facts: [{ subject: 'Renn', statement: 'Renn says nothing.', quote: 'says nothing', confidence: 0.6 }],
+        unplaced: [{ what: 'The crate tally', why: 'A ledger; a timeline of shipments.', quote: 'counts the crates' }] });
     });
     const events = await run(adapter);
     expect(events[0]).toMatchObject({ kind: 'plan', chunks: 2, files: 2 });
@@ -115,6 +119,9 @@ describe('the extraction lane', () => {
 
     const d = done(events);
     expect(d).toMatchObject({ proposals: 4, unverified: 1, dropped: [], problems: [] });
+    // What had no home is recommended, with the entries held for the writer's decision.
+    expect(d.recommendations.map((r) => r.kind)).toEqual(['new_type', 'unplaced']);
+    expect(d.recommendations[0]).toMatchObject({ kind: 'new_type', typeKey: 'institution', names: ['The Counting House'] });
     expect(d.costUsd).toBeCloseTo(2 * (400 * 0.1 + 80 * 0.4) / 1_000_000);
     expect(d.runId).not.toBeNull();
 

@@ -7,10 +7,10 @@ import {
   suggestAll, nameKey, type Destination, type LawCategory, type SuggestContext,
 } from '../import/plan';
 import {
-  EDITABLE, decisionKey, type Decisions, type ImportRun, type ProposalRow,
+  EDITABLE, decisionKey, type Decisions, type ImportRun, type PreparedProposal, type ProposalRow,
 } from '../data/importRepository';
 import { groupOutcomes, type ChunkOutcome, type ExtractEvent, type LiveCall } from '../ai/extract';
-import type { ExtractTypes } from '../domain/extract';
+import type { ExtractTypes, Recommendation } from '../domain/extract';
 import { NoModelError, SpendCapError } from '../ai/roles';
 import { explainProviderError } from '../ai/explain';
 import { usd } from '../domain/spend';
@@ -93,6 +93,8 @@ export function ImportPage() {
   const [now, setNow] = useState(() => Date.now());
   const [needsModel, setNeedsModel] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  /** Recommendations the writer has acted on or waved away, by their position in the pass. */
+  const [handled, setHandled] = useState<Set<number>>(new Set());
   const abort = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -139,6 +141,56 @@ export function ImportPage() {
     setProposals(await db.imports.listProposals(id));
   }, [db]);
 
+  /** Proposals a recommendation released: onto the open run, or a new one when the pass staged nothing. */
+  const stageMore = useCallback(async (rows: readonly PreparedProposal[]) => {
+    if (db.state !== 'ready') return;
+    let id = runId;
+    if (id) {
+      await db.imports.addPrepared(id, rows);
+    } else {
+      id = (await db.imports.stagePrepared(projectId, rows, null)).runId;
+      await db.imports.acceptAll(id);
+      setRunId(id);
+    }
+    await refresh(id);
+    setStep('review');
+  }, [db, runId, projectId, refresh]);
+
+  const takeUp = useCallback(async (index: number, rec: Recommendation, choice: string) => {
+    if (db.state !== 'ready') return;
+    setBusy(true);
+    try {
+      if (rec.kind === 'new_type') {
+        // Either the type is made and the held entries go under it, or they go under one that exists.
+        const key = choice === 'new' ? (await db.codex.createType(projectId, rec.label)).key : choice;
+        await stageMore(rec.held.map((p) => (p.table === 'entity'
+          ? { ...p, payload: { ...p.payload, typeKey: key } }
+          : p)));
+        setNote(choice === 'new'
+          ? `Added the type “${rec.label}” and staged ${rec.names.length} entr${rec.names.length === 1 ? 'y' : 'ies'} under it.`
+          : `Staged ${rec.names.length} entr${rec.names.length === 1 ? 'y' : 'ies'} as ${choice}.`);
+        setGeneration((g) => g + 1);
+      } else if (rec.kind === 'new_field') {
+        await db.codex.addAttributeField(rec.typeKey, rec.field);
+        setNote(`Added a “${rec.field}” field to ${rec.typeKey}. The entries already carry it; now the editor shows it.`);
+        setGeneration((g) => g + 1);
+      } else {
+        await stageMore([{
+          table: 'note', op: 'new', rationale: `from ${rec.label} — kept as a note on the model's recommendation`,
+          payload: { title: rec.what, body: `${rec.why}${rec.evidenceQuote ? `\n\n“${rec.evidenceQuote}”` : ''}` },
+          confidence: rec.confidence, evidenceQuote: rec.evidenceQuote,
+          evidenceVerified: rec.evidenceVerified,
+        }]);
+        setNote(`Kept “${rec.what}” as a note.`);
+      }
+      setHandled((h) => new Set([...h, index]));
+    } catch (e) {
+      setNote((e as Error).message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [db, projectId, stageMore]);
+
   /** The extract role reads every file; what it finds lands in the same review. */
   const askModel = useCallback(async () => {
     if (db.state !== 'ready' || !read || !context) return;
@@ -150,6 +202,7 @@ export function ImportPage() {
     setFinished(null);
     setOutcomes([]);
     setLive(null);
+    setHandled(new Set());
     const forModel: ExtractTypes = {
       types: types.filter((t) => context.types.has(t.key)).map((t) => ({
         key: t.key, label: t.label, attributes: t.attributes.map((a) => a.name),
@@ -415,6 +468,12 @@ export function ImportPage() {
             )}
             {outcomes.length > 0 && <OutcomeLog outcomes={outcomes} />}
             {finished && <ModelSummary finished={finished} />}
+            {finished && (
+              <Recommendations
+                recommendations={finished.recommendations} handled={handled} types={types} busy={busy}
+                onTake={(i, r, c) => void takeUp(i, r, c)}
+                onIgnore={(i) => setHandled((h) => new Set([...h, i]))} />
+            )}
             <div className="mt-2 flex flex-wrap gap-3">
               {progress
                 ? (
@@ -462,6 +521,12 @@ export function ImportPage() {
             )}
           </p>
           {finished && <ModelSummary finished={finished} />}
+          {finished && (
+            <Recommendations
+              recommendations={finished.recommendations} handled={handled} types={types} busy={busy}
+              onTake={(i, r, c) => void takeUp(i, r, c)}
+              onIgnore={(i) => setHandled((h) => new Set([...h, i]))} />
+          )}
           <ul className="mt-3 space-y-1 text-sm">
             {proposals.map((p) => (
               <li
@@ -629,6 +694,9 @@ function describe(p: ProposalRow): string {
   if (p.targetTable === 'fact_knowledge') {
     return `${payload.entityName} — ${payload.belief}${payload.learnedHow ? ` (${payload.learnedHow})` : ''}`;
   }
+  if (p.targetTable === 'relationship') {
+    return `${payload.fromName} — ${payload.kind} — ${payload.toName}${payload.notes ? ` (${payload.notes})` : ''}`;
+  }
   if (p.targetTable === 'law') return `${payload.category}: ${payload.ruleText ?? payload.title}`;
   if (p.targetTable === 'plan') {
     type Parts = { title: string | null; sections: { beats: unknown[] }[] }[];
@@ -723,17 +791,102 @@ function ModelReply({ runId }: { runId: string }) {
   );
 }
 
+/** Where the schema fell short, each with what to do about it in one tap. */
+function Recommendations({ recommendations, handled, types, busy, onTake, onIgnore }: {
+  recommendations: Recommendation[]; handled: Set<number>; types: EntityType[]; busy: boolean;
+  onTake: (index: number, rec: Recommendation, choice: string) => void; onIgnore: (index: number) => void;
+}) {
+  const open = recommendations.map((rec, index) => ({ rec, index }))
+    .filter(({ index }) => !handled.has(index));
+  if (open.length === 0) return null;
+  return (
+    <section className="mt-3 rounded-lg border border-current/15 p-3" data-testid="recommendations">
+      <h3 className="text-xs font-semibold uppercase tracking-wide opacity-50">
+        {open.length} recommendation{open.length === 1 ? '' : 's'} — where the files reached past the codex
+      </h3>
+      <ul className="mt-2 space-y-3 text-sm">
+        {open.map(({ rec, index }) => (
+          <li key={index} data-recommendation={rec.kind}>
+            {rec.kind === 'new_type' && (
+              <>
+                <p>
+                  The model read <strong>{rec.names.join(', ')}</strong> as
+                  {' '}<q>{rec.label}</q>, a type this project does not have.
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  <button disabled={busy} onClick={() => onTake(index, rec, 'new')}
+                    className="rounded-lg border border-current/20 bg-current/10 px-3 py-1 font-medium disabled:opacity-50">
+                    Add the type “{rec.label}” and stage {rec.names.length === 1 ? 'it' : 'them'}
+                  </button>
+                  <label className="flex items-center gap-1 opacity-80">
+                    or file as
+                    <select aria-label={`File ${rec.label} entries as`} disabled={busy} defaultValue=""
+                      onChange={(e) => { if (e.target.value) onTake(index, rec, e.target.value); }}
+                      className="rounded border border-current/20 bg-transparent px-1 py-0.5">
+                      <option value="">a type you have…</option>
+                      {types.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                    </select>
+                  </label>
+                  <button onClick={() => onIgnore(index)} className="underline opacity-60">ignore</button>
+                </div>
+              </>
+            )}
+            {rec.kind === 'new_field' && (
+              <>
+                <p>
+                  {rec.names.length === 1 ? 'One' : rec.names.length} {rec.typeKey} entr{rec.names.length === 1 ? 'y' : 'ies'}
+                  {' '}({rec.names.join(', ')}) came with a <q>{rec.field}</q> the {rec.typeKey} editor has no
+                  field for. The value is kept on {rec.names.length === 1 ? 'it' : 'them'} either way.
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  <button disabled={busy} onClick={() => onTake(index, rec, 'add')}
+                    className="rounded-lg border border-current/20 bg-current/10 px-3 py-1 font-medium disabled:opacity-50">
+                    Add “{rec.field}” to {rec.typeKey}
+                  </button>
+                  <button onClick={() => onIgnore(index)} className="underline opacity-60">ignore</button>
+                </div>
+              </>
+            )}
+            {rec.kind === 'unplaced' && (
+              <>
+                <p>
+                  <strong>{rec.what}</strong> — {rec.why}
+                  {rec.evidenceQuote && <> <q className="opacity-70">{rec.evidenceQuote}</q></>}
+                  {!rec.evidenceVerified && (
+                    <span className="ml-1 rounded-full border border-current/30 px-1.5 text-xs">
+                      could not be traced to the file
+                    </span>
+                  )}
+                  <span className="ml-1 text-xs opacity-50">{rec.label}</span>
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  <button disabled={busy} onClick={() => onTake(index, rec, 'note')}
+                    className="rounded-lg border border-current/20 bg-current/10 px-3 py-1 font-medium disabled:opacity-50">
+                    Keep it as a note
+                  </button>
+                  <button onClick={() => onIgnore(index)} className="underline opacity-60">ignore</button>
+                </div>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** What the model pass did, in one paragraph, problems named rather than counted. */
 function ModelSummary({ finished }: { finished: Finished }) {
-  const { proposals, unverified, dropped, problems, costUsd } = finished;
+  const { proposals, unverified, dropped, problems, costUsd, recommendations } = finished;
   return (
     <div className="mt-2 text-xs opacity-70" data-testid="model-summary">
       <p>
         The model proposed {proposals} thing{proposals === 1 ? '' : 's'} for {usd(costUsd)}
         {unverified > 0 && <>, {unverified} of them without words it could point to</>}
-        {dropped.length > 0 && (
-          <>, and {dropped.length} more it filed under a type this project does not have</>
-        )}.
+        {recommendations.length > 0 && (
+          <>, with {recommendations.length} recommendation{recommendations.length === 1 ? '' : 's'} below</>
+        )}
+        {dropped.length > 0 && <>, and {dropped.length} item{dropped.length === 1 ? '' : 's'} it could not use</>}.
       </p>
       {dropped.length > 0 && (
         <ul className="mt-0.5 list-disc pl-4">
@@ -755,7 +908,7 @@ function ModelSummary({ finished }: { finished: Finished }) {
 }
 
 const BELIEFS = ['knows', 'suspects', 'believes_false', 'denies'];
-const LAW_CATEGORIES = ['style', 'canon', 'content'];
+const LAW_CATEGORIES = ['style', 'canon', 'content', 'voice', 'structure', 'ip'];
 
 /** The fields `EDITABLE` allows for the proposal's table, as inputs. */
 function ProposalEditor({ proposal, types, busy, onSave, onDone }: {

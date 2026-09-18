@@ -7,8 +7,8 @@ import type { RunsRepository, RunStatus } from '../data/runsRepository';
 import type { SpendRepository } from '../data/spendRepository';
 import type { ImportRepository, PreparedProposal } from '../data/importRepository';
 import {
-  chunkDocument, mergeExtracted, parseExtractReply, renderExtractPrompt,
-  type Chunk, type ExtractTypes, type Extracted,
+  chunkDocument, mergeExtracted, mergeRecommendations, parseExtractReply, renderExtractPrompt,
+  type Chunk, type ExtractTypes, type Extracted, type Recommendation,
 } from '../domain/extract';
 import type { SourceDoc } from '../import/source';
 import { stripReasoningBlocks } from '../text/sanitise';
@@ -83,6 +83,8 @@ export type ExtractEvent =
     proposals: number;
     unverified: number;
     dropped: { what: string; reason: string }[];
+    /** Where the schema fell short of the files: new types, new fields, material with no home. */
+    recommendations: Recommendation[];
     /** Chunks that did not produce proposals, and why. */
     problems: ChunkOutcome[];
     costUsd: number;
@@ -139,6 +141,7 @@ export class Extractor {
     const adapter = (this.deps.adapterFor ?? defaultAdapter)(account, apiKey);
 
     const gathered: Extracted[] = [];
+    const recommended: Recommendation[] = [];
     const dropped: { what: string; reason: string }[] = [];
     const problems: ChunkOutcome[] = [];
     let firstRunId: string | null = null;
@@ -226,12 +229,16 @@ export class Extractor {
       }
 
       gathered.push(...result.proposals);
+      recommended.push(...result.recommendations);
       dropped.push(...result.dropped);
       outcome.proposals = result.proposals.length;
+      const recs = result.recommendations.length;
       yield result.proposals.length === 0
-        ? finish('empty', result.dropped.length
-          ? `nothing usable: ${result.dropped.length} item${result.dropped.length === 1 ? '' : 's'} dropped, listed below`
-          : 'the model found nothing to propose in it')
+        ? finish('empty', recs
+          ? `nothing staged, but ${recs} recommendation${recs === 1 ? '' : 's'} below`
+          : result.dropped.length
+            ? `nothing usable: ${result.dropped.length} item${result.dropped.length === 1 ? '' : 's'} dropped, listed below`
+            : 'the model found nothing to propose in it')
         : finish('ok');
     }
 
@@ -248,7 +255,8 @@ export class Extractor {
     }
     yield {
       kind: 'done', runId: stagedRun, proposals: merged.length,
-      unverified: merged.filter((p) => !p.evidenceVerified).length, dropped, problems, costUsd: cost,
+      unverified: merged.filter((p) => !p.evidenceVerified).length, dropped,
+      recommendations: mergeRecommendations(recommended), problems, costUsd: cost,
     };
   }
 

@@ -265,6 +265,65 @@ export class CodexRepository {
     }));
   }
 
+  /* ------------------------------------------------------------------- types */
+
+  /**
+   * A type this project defines, from a label. The key is the label's slug;
+   * `entity_type.key` is one namespace across projects, so a slug another
+   * project already took gets this project's suffix. A key this project or
+   * the built-ins already have is returned as it is.
+   */
+  async createType(projectId: string, label: string): Promise<EntityType> {
+    const clean = label.trim();
+    if (!clean) throw new Error('a type needs a name');
+    const slug = clean.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').slice(0, 40) || 'type';
+    const rows = await this.#all(
+      'SELECT key, project_id, label, icon, attribute_schema_json FROM entity_type WHERE key = ?', [slug]);
+    const taken = rows[0];
+    let key = slug;
+    if (taken) {
+      if (taken[1] === null || taken[1] === projectId) {
+        return {
+          key: taken[0] as string, label: taken[2] as string, icon: taken[3] as string | null,
+          attributes: attributeFields(taken[4] as string | null),
+        };
+      }
+      key = `${slug}_${projectId.slice(-4)}`;
+    }
+    const schema = JSON.stringify({ type: 'object', properties: {} });
+    await this.driver.batch([
+      {
+        sql: 'INSERT OR IGNORE INTO entity_type (key, project_id, label, icon, attribute_schema_json) VALUES (?,?,?,NULL,?)',
+        params: [key, projectId, clean, schema],
+      },
+      this.#op('entity_type', key, 'insert', { projectId, label: clean }, Date.now()),
+    ], true);
+    return { key, label: clean, icon: null, attributes: [] };
+  }
+
+  /**
+   * Give a type's editor a field for an attribute its entries already carry.
+   * Built-in types are shared by every project on this device; with one
+   * writer ([D7](../../docs/10-decisions.md)) that is a convenience, not a leak.
+   */
+  async addAttributeField(typeKey: string, name: string, long = false): Promise<void> {
+    const field = name.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '');
+    if (!field) throw new Error('a field needs a name');
+    const rows = await this.#all('SELECT attribute_schema_json FROM entity_type WHERE key = ?', [typeKey]);
+    if (!rows[0]) throw new Error(`no type “${typeKey}”`);
+    let schema: { type?: string; properties?: Record<string, unknown> } = { type: 'object', properties: {} };
+    try {
+      const parsed = JSON.parse((rows[0][0] as string | null) ?? '') as typeof schema;
+      if (parsed && typeof parsed === 'object') schema = { type: 'object', ...parsed, properties: { ...(parsed.properties ?? {}) } };
+    } catch { /* an unreadable schema is replaced, keeping nothing it hid */ }
+    if (schema.properties![field]) return;
+    schema.properties![field] = long ? { type: 'string', 'x-long': true } : { type: 'string' };
+    await this.driver.batch([
+      { sql: 'UPDATE entity_type SET attribute_schema_json = ? WHERE key = ?', params: [JSON.stringify(schema), typeKey] },
+      this.#op('entity_type', typeKey, 'update', { addedField: field }, Date.now()),
+    ], true);
+  }
+
   /* ---------------------------------------------------------------- entities */
 
   async createEntity(projectId: string, draft: EntityDraft): Promise<Entity> {

@@ -21,9 +21,15 @@
  *   rules as instructions. A model call that only copied would be a worse
  *   version of the rule-based lane; the point of paying for one is the
  *   rewrite. The quote is what keeps the rewrite honest.
- * - **Types come from the project.** The model chooses from the entity types
- *   this project has. An item naming a type that is not there is dropped and
- *   counted rather than filed under a guess.
+ * - **What has no home is recommended, not dropped.** The model chooses from
+ *   the entity types this project has; when nothing fits, it may name a new
+ *   one, and that becomes a *recommendation* — add the type and file these
+ *   entries there, or file them under a type that exists — with the entries
+ *   held until the writer decides. The same for an attribute the type's editor
+ *   has no field for, and for anything the file establishes that fits none of
+ *   the shapes offered: a timeline, a language's rules, a theme. A bible is
+ *   wider than any schema, and a model that has read the file is the right
+ *   thing to say where the schema falls short.
  * - **An existing entry is an update, not a twin.** A name or alias already in
  *   the codex marks the proposal `update`; the apply path already merges by
  *   name, so this is a label for the reviewer rather than a second mechanism.
@@ -47,7 +53,7 @@ export interface ExtractTypes {
 
 /** A row for `proposal`, ready to stage. The same shapes the rule-based stager writes. */
 export interface Extracted {
-  table: 'entity' | 'entity_alias' | 'fact' | 'fact_knowledge' | 'law';
+  table: 'entity' | 'entity_alias' | 'relationship' | 'fact' | 'fact_knowledge' | 'law' | 'note';
   op: 'new' | 'update';
   payload: Record<string, unknown>;
   /** Why, in the writer's terms: the file and what the model said. */
@@ -59,11 +65,52 @@ export interface Extracted {
   evidenceVerified: boolean;
 }
 
+/**
+ * Where the schema fell short of the file, with what to do about it in reach.
+ *
+ * - `new_type`: entries the model filed under a type the project lacks, held
+ *   with the type's proposed key and label. Add the type and stage them, or
+ *   file them under a type that exists.
+ * - `new_field`: an attribute the model filled that the type's editor has no
+ *   field for. The value is kept on the entry either way; adding the field
+ *   makes it visible and editable.
+ * - `unplaced`: something the file establishes that belongs in a bible but
+ *   fits none of the shapes offered. Keep it as a note, or not.
+ */
+export type Recommendation =
+  | {
+    kind: 'new_type';
+    /** A key in the codex's form, from the model's word. */
+    typeKey: string;
+    label: string;
+    names: string[];
+    /** The entity and alias proposals waiting on the decision, typed with `typeKey`. */
+    held: Extracted[];
+    why: string;
+  }
+  | { kind: 'new_field'; typeKey: string; field: string; names: string[] }
+  | {
+    kind: 'unplaced';
+    what: string;
+    why: string;
+    evidenceQuote: string | null;
+    evidenceVerified: boolean;
+    confidence: number;
+    /** Where it was read. */
+    label: string;
+  };
+
 export interface ExtractParse {
   proposals: Extracted[];
-  /** Items with a type the project does not have, or no usable content. */
+  recommendations: Recommendation[];
+  /** Items with no usable content at all. */
   dropped: { what: string; reason: string }[];
   malformed: boolean;
+}
+
+/** A type key in the codex's form, from the model's word for it. */
+export function slugType(label: string): string {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').slice(0, 40);
 }
 
 /** A piece of a document small enough for one call. */
@@ -179,8 +226,11 @@ export function renderExtractPrompt(chunk: Chunk, types: ExtractTypes): string {
     + 'resolve pronouns to names, drop its formatting, headings and asides, keep every concrete detail it '
     + 'gives, and invent nothing it does not say.',
     '',
-    'ENTITY TYPES YOU MAY USE, with the attribute fields each can carry:',
+    'ENTITY TYPES THIS PROJECT HAS, with the attribute fields each can carry:',
     `  ${typeList}`,
+    'Use one of these when it fits. When none fits — a language, a magic system, a ship, a religion — give '
+    + 'a short new type name instead; it will be offered to the writer as a new type. Add attribute fields '
+    + 'the type lacks when the source states a concrete detail with no field for it.',
     known.length
       ? `NAMES ALREADY IN THE CODEX (reuse them exactly when the text means the same person or thing): ${known.join(', ')}`
       : '',
@@ -189,7 +239,8 @@ export function renderExtractPrompt(chunk: Chunk, types: ExtractTypes): string {
     chunk.text,
     '',
     'Answer with one JSON object and no other text:',
-    '{"entities": [{"name": "", "type": "<one of the types above>", "aliases": [""],',
+    '{"entities": [{"name": "", "type": "<one of the types above, or a short new type name if none fits>", '
+    + '"aliases": [""],',
     '   "summary": "<one sentence that says who or what this is, as an encyclopedia entry begins>",',
     '   "description": "<one to three paragraphs in your own clean prose, covering everything the source '
     + 'establishes about it: role, history, appearance, relationships, contradictions>",',
@@ -199,10 +250,16 @@ export function renderExtractPrompt(chunk: Chunk, types: ExtractTypes): string {
     ' "facts": [{"subject": "<entity name or empty>", "statement": "<one clear sentence, present tense, names not '
     + 'pronouns>", "knownBy": [{"entity": "", "belief": "knows|suspects|believes_false|denies", "how": ""}], '
     + '"quote": "", "confidence": 0.0}],',
-    ' "laws": [{"category": "style|canon|content", "title": "<a few words>", '
-    + '"rule": "<the rule as an instruction to a writer, one or two sentences>", "quote": "", "confidence": 0.0}]}',
-    'Use an empty list for anything the source does not establish. Use an empty object for attributes the source '
-    + 'does not give. Do not invent names, facts or rules.',
+    ' "relationships": [{"from": "<entity name>", "to": "<entity name>", "kind": "<one or two words: sibling, '
+    + 'rival, serves, owes, loves, made>", "note": "<one sentence, or empty>", "quote": "", "confidence": 0.0}],',
+    ' "laws": [{"category": "style|canon|content|voice|structure", "title": "<a few words>", '
+    + '"rule": "<the rule as an instruction to a writer, one or two sentences>", "quote": "", "confidence": 0.0}],',
+    ' "unplaced": [{"what": "<a few words naming it>", "why": "<what it is, and where in a story bible it would '
+    + 'belong>", "quote": "", "confidence": 0.0}]}',
+    'Put in "unplaced" anything the source establishes that belongs in a story bible but fits none of the shapes '
+    + 'above — a timeline, a calendar, a language\'s rules, a map, a theme, a scene list — so the writer can '
+    + 'decide where it goes. Use an empty list for anything the source does not establish and an empty object '
+    + 'for attributes it does not give. Do not invent names, facts or rules.',
   ].filter((line) => line !== '').join('\n');
 }
 
@@ -217,7 +274,13 @@ interface RawFact {
 interface RawLaw {
   category?: unknown; title?: unknown; rule?: unknown; quote?: unknown; confidence?: unknown;
 }
-interface RawReply { entities?: unknown; facts?: unknown; laws?: unknown }
+interface RawRelationship {
+  from?: unknown; to?: unknown; kind?: unknown; note?: unknown; quote?: unknown; confidence?: unknown;
+}
+interface RawUnplaced { what?: unknown; why?: unknown; quote?: unknown; confidence?: unknown }
+interface RawReply {
+  entities?: unknown; facts?: unknown; laws?: unknown; relationships?: unknown; unplaced?: unknown;
+}
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const list = <T>(v: unknown): T[] => (Array.isArray(v) ? v.filter((x): x is T => !!x && typeof x === 'object') : []);
@@ -240,7 +303,8 @@ export function readAttributes(raw: unknown): Record<string, string> {
   }
   return out;
 }
-const LAW_CATEGORIES = new Set(['style', 'canon', 'content']);
+/** Every category the laws engine has (doc 04), not only the three the pull-down offers. */
+const LAW_CATEGORIES = new Set(['style', 'canon', 'content', 'voice', 'structure', 'ip']);
 
 function clip(v: unknown): number {
   const n = typeof v === 'number' ? v : Number.NaN;
@@ -256,21 +320,25 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
   const open = body.indexOf('{');
   const close = body.lastIndexOf('}');
   const firstBracket = body.search(/[[{]/u);
-  if (open === -1 || close <= open || firstBracket !== open) {
-    return { proposals: [], dropped: [], malformed: true };
-  }
+  const malformed: ExtractParse = { proposals: [], recommendations: [], dropped: [], malformed: true };
+  if (open === -1 || close <= open || firstBracket !== open) return malformed;
   let raw: RawReply;
   try {
     raw = JSON.parse(body.slice(open, close + 1)) as RawReply;
   } catch {
-    return { proposals: [], dropped: [], malformed: true };
+    return malformed;
   }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { proposals: [], dropped: [], malformed: true };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return malformed;
 
-  const allowed = new Set(types.types.map((t) => t.key));
+  const allowed = new Map(types.types.map((t) => [t.key, new Set(t.attributes ?? [])]));
   const proposals: Extracted[] = [];
+  const recommendations: Recommendation[] = [];
   const dropped: ExtractParse['dropped'] = [];
   const from = `from ${chunk.label}`;
+  /** Entries filed under a type the project lacks, by the type's key. */
+  const newTypes = new Map<string, Extract<Recommendation, { kind: 'new_type' }>>();
+  /** Fields a type's editor has no box for, by `type\u0000field`. */
+  const newFields = new Map<string, Extract<Recommendation, { kind: 'new_field' }>>();
 
   const evidence = (quote: unknown) => {
     const claimed = str(quote);
@@ -284,34 +352,89 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
   for (const e of list<RawEntity>(raw.entities)) {
     const name = str(e.name);
     if (!name) { dropped.push({ what: 'an entity with no name', reason: 'no name' }); continue; }
-    const type = str(e.type)?.toLowerCase() ?? '';
-    if (!allowed.has(type)) {
-      dropped.push({ what: name, reason: `the model called it a “${type || 'nothing'}”, a type this project does not have` });
-      continue;
-    }
-    const { quote, verified } = evidence(e.quote);
+    const typeWord = str(e.type) ?? '';
     const existing = types.existing.get(nameKey(name));
+    // An existing entry keeps its type; otherwise the model's word, matched to
+    // a key the project has, or slugged into a key it might add.
+    const known = allowed.has(typeWord.toLowerCase()) ? typeWord.toLowerCase()
+      : [...allowed.keys()].find((k) => k === slugType(typeWord)) ?? null;
+    const typeKey = existing?.typeKey ?? known ?? slugType(typeWord);
+    if (!typeKey) { dropped.push({ what: name, reason: 'the model gave it no type' }); continue; }
+    const isNewType = !existing && !known;
+
+    const { quote, verified } = evidence(e.quote);
     const description = str(e.description);
-    proposals.push({
+    const attributes = readAttributes(e.attributes);
+    const rows: Extracted[] = [{
       table: 'entity', op: existing ? 'update' : 'new',
       payload: {
-        name, typeKey: existing?.typeKey ?? type, summary: str(e.summary),
+        name, typeKey, summary: str(e.summary),
         description: description ? description.slice(0, MAX_DESCRIPTION) : null,
-        attributes: readAttributes(e.attributes),
+        attributes,
       },
-      rationale: `${from} — the model read it as a ${type}${existing ? ', already in your codex' : ''}`,
+      rationale: `${from} — the model read it as a ${isNewType ? typeWord.trim() : typeKey}`
+        + (existing ? ', already in your codex' : ''),
       confidence: clip(e.confidence), evidenceQuote: quote, evidenceVerified: verified,
-    });
-    proposed.add(nameKey(name));
+    }];
     for (const alias of Array.isArray(e.aliases) ? e.aliases : []) {
       const a = str(alias);
       if (!a || nameKey(a) === nameKey(name) || types.existing.has(nameKey(a))) continue;
-      proposals.push({
+      rows.push({
         table: 'entity_alias', op: 'new', payload: { entityName: name, alias: a },
         rationale: `${from} — another name for ${name}`,
         confidence: clip(e.confidence), evidenceQuote: quote, evidenceVerified: verified,
       });
     }
+
+    if (isNewType) {
+      const seen = newTypes.get(typeKey);
+      if (seen) { seen.names.push(name); seen.held.push(...rows); } else {
+        const rec: Extract<Recommendation, { kind: 'new_type' }> = {
+          kind: 'new_type', typeKey, label: typeWord.trim(), names: [name], held: rows,
+          why: `${from} — the model read ${name} as a “${typeWord.trim()}”, a type this project does not have`,
+        };
+        newTypes.set(typeKey, rec);
+        recommendations.push(rec);
+      }
+    } else {
+      proposals.push(...rows);
+      // Fields the type's editor has no box for. The value is on the entry
+      // either way; the recommendation is to give it a box.
+      const fields = allowed.get(typeKey);
+      if (fields && fields.size > 0) {
+        for (const field of Object.keys(attributes)) {
+          if (fields.has(field)) continue;
+          const key = `${typeKey}\u0000${field}`;
+          const seen = newFields.get(key);
+          if (seen) { if (!seen.names.includes(name)) seen.names.push(name); } else {
+            const rec: Extract<Recommendation, { kind: 'new_field' }> = {
+              kind: 'new_field', typeKey, field, names: [name],
+            };
+            newFields.set(key, rec);
+            recommendations.push(rec);
+          }
+        }
+      }
+    }
+    proposed.add(nameKey(name));
+  }
+
+  for (const r of list<RawRelationship>(raw.relationships)) {
+    const fromName = str(r.from);
+    const toName = str(r.to);
+    const kind = str(r.kind);
+    if (!fromName || !toName || !kind) {
+      dropped.push({ what: 'a relationship missing an end or a kind', reason: 'incomplete' });
+      continue;
+    }
+    if (nameKey(fromName) === nameKey(toName)) continue;
+    const { quote, verified } = evidence(r.quote);
+    proposals.push({
+      table: 'relationship', op: 'new',
+      payload: { fromName, toName, kind: kind.toLowerCase(), notes: str(r.note) },
+      rationale: `${from} — ${fromName} ${kind.toLowerCase()} ${toName}`,
+      confidence: clip(r.confidence), evidenceQuote: quote, evidenceVerified: verified,
+    });
   }
 
   let factIndex = 0;
@@ -346,7 +469,10 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
     if (!rule) { dropped.push({ what: 'a law with no rule', reason: 'no rule' }); continue; }
     const category = str(l.category)?.toLowerCase() ?? '';
     if (!LAW_CATEGORIES.has(category)) {
-      dropped.push({ what: rule, reason: `the model filed it under “${category || 'nothing'}”, not style, canon or content` });
+      dropped.push({
+        what: rule,
+        reason: `the model filed it under “${category || 'nothing'}”, not a category the laws engine has`,
+      });
       continue;
     }
     const { quote, verified } = evidence(l.quote);
@@ -358,7 +484,51 @@ export function parseExtractReply(reply: string, chunk: Chunk, types: ExtractTyp
     });
   }
 
-  return { proposals, dropped, malformed: false };
+  for (const u of list<RawUnplaced>(raw.unplaced)) {
+    const what = str(u.what);
+    const why = str(u.why);
+    if (!what || !why) continue;
+    const { quote, verified } = evidence(u.quote);
+    recommendations.push({
+      kind: 'unplaced', what, why, evidenceQuote: quote, evidenceVerified: verified,
+      confidence: clip(u.confidence), label: chunk.label,
+    });
+  }
+
+  return { proposals, recommendations, dropped, malformed: false };
+}
+
+/** Recommendations from many chunks: one per new type, one per new field, every unplaced item. */
+export function mergeRecommendations(all: readonly Recommendation[]): Recommendation[] {
+  const out: Recommendation[] = [];
+  const byType = new Map<string, Extract<Recommendation, { kind: 'new_type' }>>();
+  const byField = new Map<string, Extract<Recommendation, { kind: 'new_field' }>>();
+  for (const r of all) {
+    if (r.kind === 'new_type') {
+      const seen = byType.get(r.typeKey);
+      if (seen) {
+        for (const n of r.names) if (!seen.names.includes(n)) seen.names.push(n);
+        seen.held.push(...r.held);
+      } else {
+        const copy = { ...r, names: [...r.names], held: [...r.held] };
+        byType.set(r.typeKey, copy);
+        out.push(copy);
+      }
+    } else if (r.kind === 'new_field') {
+      const key = `${r.typeKey}\u0000${r.field}`;
+      const seen = byField.get(key);
+      if (seen) { for (const n of r.names) if (!seen.names.includes(n)) seen.names.push(n); } else {
+        const copy = { ...r, names: [...r.names] };
+        byField.set(key, copy);
+        out.push(copy);
+      }
+    } else {
+      out.push(r);
+    }
+  }
+  // Held entities fold like staged ones: one per name.
+  for (const r of out) if (r.kind === 'new_type') r.held = mergeExtracted(r.held);
+  return out;
 }
 
 function firstWords(text: string, n = 6): string {
