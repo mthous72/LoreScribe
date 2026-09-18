@@ -91,8 +91,9 @@ export interface PreparedProposal {
 
 /** What a writer may change on a proposal before it is applied, by table. */
 export const EDITABLE: Record<string, string[]> = {
-  entity: ['name', 'typeKey', 'summary'],
+  entity: ['name', 'typeKey', 'summary', 'description'],
   entity_alias: ['alias'],
+  relationship: ['kind', 'notes'],
   fact: ['statement'],
   fact_knowledge: ['belief', 'learnedHow'],
   note: ['title'],
@@ -120,6 +121,8 @@ interface EntityPayload {
   importance?: string; status?: string;
 }
 interface AliasPayload { entityName: string; alias: string }
+/** Both ends by name, resolved at apply time like everything else. */
+interface RelationshipPayload { fromName: string; toName: string; kind: string; notes?: string | null }
 interface FactPayload {
   key: string; predicate: string; statement: string;
   /** The extraction lane names the subject; resolved by name at apply time like everything else. */
@@ -299,6 +302,31 @@ export class ImportRepository {
     return { runId, proposals: rows.length };
   }
 
+  /**
+   * Add proposals to a run already staged — a recommendation the writer took
+   * up after the pass. The verified ones are accepted like the rest; the run
+   * must still be open.
+   */
+  async addPrepared(runId: string, rows: readonly PreparedProposal[]): Promise<number> {
+    const run = await this.#all('SELECT status FROM proposal_run WHERE id = ?', [runId]);
+    if (!run[0]) throw new Error('no such import run');
+    if (run[0][0] !== 'staged') throw new Error('that import has already been applied or discarded');
+    if (rows.length === 0) return 0;
+    const now = Date.now();
+    await this.driver.batch([
+      ...rows.map((r, i) => ({
+        sql: `INSERT INTO proposal (id,run_id,target_table,op,payload,rationale,confidence,evidence_quote,
+                                    evidence_verified,status,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?, 'pending', ?)`,
+        params: [uuidv7(now + i), runId, r.table, r.op, JSON.stringify(r.payload), r.rationale,
+          r.confidence ?? null, r.evidenceQuote ?? null, Number(r.evidenceVerified ?? true), now],
+      })),
+      this.#op(runId, 'update', { added: rows.length }, now),
+    ], true);
+    await this.acceptAll(runId);
+    return rows.length;
+  }
+
   /* ------------------------------------------------------------------ reads */
 
   async listRuns(projectId: string): Promise<ImportRun[]> {
@@ -354,7 +382,8 @@ export class ImportRepository {
     for (const [key, value] of Object.entries(patch)) {
       if (!allowed.has(key)) throw new Error(`${key} is not something an import can change on a ${String(row[0])}`);
       const clean = typeof value === 'string' ? value.trim() : value;
-      if (typeof clean === 'string' && !clean && key !== 'learnedHow' && key !== 'summary') {
+      const optional = key === 'learnedHow' || key === 'summary' || key === 'description' || key === 'notes';
+      if (typeof clean === 'string' && !clean && !optional) {
         throw new Error(`${key} cannot be empty`);
       }
       changed[key] = typeof clean === 'string' && !clean ? null : clean;
@@ -418,7 +447,7 @@ export class ImportRepository {
   async apply(projectId: string, runId: string): Promise<ApplyResult> {
     const proposals = (await this.listProposals(runId))
       .filter((p) => p.status === 'accepted');
-    const order = ['entity', 'entity_alias', 'fact', 'fact_knowledge', 'note', 'scene', 'law', 'plan'];
+    const order = ['entity', 'entity_alias', 'relationship', 'fact', 'fact_knowledge', 'note', 'scene', 'law', 'plan'];
     proposals.sort((a, b) => order.indexOf(a.targetTable) - order.indexOf(b.targetTable));
 
     const byName = await this.#entityIndex(projectId);
@@ -531,6 +560,17 @@ export class ImportRepository {
       if (!owner) throw new Error(`no entity named "${payload.entityName}"`);
       const alias = await this.codex.addAlias(owner, payload.alias);
       return alias.id;
+    }
+
+    if (p.targetTable === 'relationship') {
+      const payload = p.payload as unknown as RelationshipPayload;
+      const from = byName.get(nameKey(payload.fromName));
+      const to = byName.get(nameKey(payload.toName));
+      if (!from) throw new Error(`no entity named "${payload.fromName}"`);
+      if (!to) throw new Error(`no entity named "${payload.toName}"`);
+      return this.codex.addRelationship(projectId, from, to, payload.kind, {
+        notes: payload.notes ?? undefined,
+      });
     }
 
     if (p.targetTable === 'fact') {
@@ -654,6 +694,8 @@ export class ImportRepository {
       await this.codex.removeEntity(id);
     } else if (p.targetTable === 'entity_alias') {
       await this.codex.removeAlias(id);
+    } else if (p.targetTable === 'relationship') {
+      await this.codex.removeRelationship(id);
     } else if (p.targetTable === 'fact') {
       await this.facts.removeFact(id);
     } else if (p.targetTable === 'fact_knowledge') {

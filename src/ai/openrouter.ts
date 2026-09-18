@@ -178,6 +178,8 @@ export class OpenRouterAdapter implements ProviderAdapter {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const parser = new SseParser();
+    const startedAt = Date.now();
+    let received = 0;
     let servedBy: string | null = null;
     let finish: ChatDelta & { kind: 'done' } | null = null;
     let reasoningSeen = 0;
@@ -198,7 +200,10 @@ export class OpenRouterAdapter implements ProviderAdapter {
         reasoningSeen += chunk.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
         out.push({ kind: 'reasoning', text: choice.delta.reasoning });
       }
-      if (choice?.delta?.content) out.push({ kind: 'text', text: choice.delta.content });
+      if (choice?.delta?.content) {
+        received += choice.delta.content.length;
+        out.push({ kind: 'text', text: choice.delta.content });
+      }
       if (chunk.usage) {
         const reasoning = chunk.usage.completion_tokens_details?.reasoning_tokens ?? 0;
         reasoningSeen = Math.max(reasoningSeen, reasoning);
@@ -230,7 +235,11 @@ export class OpenRouterAdapter implements ProviderAdapter {
     } catch (e) {
       if (!signal.aborted) {
         if (e instanceof ProviderError) throw e;
-        throw new ProviderError('network', (e as Error).message ?? 'The connection was lost.');
+        // The stream had started: this is a dropped connection, not a
+        // refusal to connect, and the writer should hear how far it got.
+        const seconds = Math.round((Date.now() - startedAt) / 1000);
+        throw new ProviderError('network',
+          `The connection dropped after ${seconds}s with ${received.toLocaleString('en')} characters received.`);
       }
     } finally {
       // Cancel the underlying stream, whichever way we left the loop. Ignore a

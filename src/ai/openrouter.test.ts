@@ -174,6 +174,31 @@ describe('the stream', () => {
   });
 });
 
+describe('a stream that dies', () => {
+  it('is a network error that says how far it got, not a refusal to connect', async () => {
+    // Erroring from `pull`, not `start`: an error clears the queue, and the
+    // point is that one chunk arrived before the line went dead.
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(delta('Seventeen letters'))}\n\n`));
+      },
+      pull(controller) {
+        controller.error(new TypeError('network error'));
+      },
+    });
+    const { adapter: a } = adapter(() => new Response(body, { status: 200 }));
+    const got: ChatDelta[] = [];
+    let failure: unknown;
+    try {
+      for await (const d of a.chat(request, new AbortController().signal)) got.push(d);
+    } catch (e) { failure = e; }
+    expect(got).toEqual([{ kind: 'text', text: 'Seventeen letters' }]);
+    expect(failure).toBeInstanceOf(ProviderError);
+    expect((failure as ProviderError).code).toBe('network');
+    expect((failure as Error).message).toMatch(/^The connection dropped after \d+s with 17 characters received\.$/u);
+  });
+});
+
 describe('the error vocabulary', () => {
   const failing = (status: number, body: unknown, headers: Record<string, string> = {}) =>
     adapter(() => new Response(JSON.stringify(body), { status, headers })).adapter;

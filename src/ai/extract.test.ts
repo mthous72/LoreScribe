@@ -9,7 +9,7 @@ import { ManuscriptRepository } from '../data/manuscriptRepository';
 import { PlanRepository } from '../data/planRepository';
 import { ImportRepository } from '../data/importRepository';
 import { EncryptedCredentialStore, MemoryVault } from './credentials';
-import { Extractor, type ChunkOutcome, type ExtractEvent } from './extract';
+import { Extractor, groupOutcomes, type ChunkOutcome, type ExtractEvent } from './extract';
 import { NoModelError } from './roles';
 import { ProviderError, type ChatDelta, type ChatRequest, type ProviderAdapter } from './provider';
 import { parseMarkdown } from '../import/markdown';
@@ -102,19 +102,29 @@ describe('the extraction lane', () => {
           { name: 'Ilva', type: 'character', summary: 'Keeper.', quote: 'keeps the seal, and the gate', confidence: 0.9 },
           { name: 'Maren', type: 'character', summary: 'Invented.', quote: 'Maren came in from the rain', confidence: 0.8 },
         ] })
-        : answer({ entities: [{ name: 'Renn', type: 'character', summary: 'Counts crates.', quote: 'counts the crates', confidence: 0.7 }],
-          facts: [{ subject: 'Renn', statement: 'Renn says nothing.', quote: 'says nothing', confidence: 0.6 }] });
+        : answer({ entities: [
+          { name: 'Renn', type: 'character', summary: 'Counts crates.', quote: 'counts the crates', confidence: 0.7 },
+          { name: 'The Counting House', type: 'Institution', summary: 'Where Renn counts.', quote: 'counts the crates' },
+        ],
+        facts: [{ subject: 'Renn', statement: 'Renn says nothing.', quote: 'says nothing', confidence: 0.6 }],
+        unplaced: [{ what: 'The crate tally', why: 'A ledger; a timeline of shipments.', quote: 'counts the crates' }] });
     });
     const events = await run(adapter);
     expect(events[0]).toMatchObject({ kind: 'plan', chunks: 2, files: 2 });
     expect(asked).toHaveLength(2);
-    expect(asked[0]!.messages[0]!.content).toContain('SOURCE (cast/ilva.md)');
+    expect(asked[0]!.messages[0]!.role).toBe('system');
+    expect(asked[0]!.messages[1]!.content).toContain('===== SOURCE: cast/ilva.md =====');
+    // The system turn is the same on both calls: a provider's prefix cache hits.
+    expect(asked[1]!.messages[0]!.content).toBe(asked[0]!.messages[0]!.content);
     const outcomes = events.filter((e) => e.kind === 'chunk') as (ExtractEvent & ChunkOutcome)[];
     expect(outcomes.map((o) => [o.state, o.proposals, o.attempts])).toEqual([['ok', 2, 1], ['ok', 2, 1]]);
     expect(outcomes.every((o) => o.runId !== null && o.costUsd !== null)).toBe(true);
 
     const d = done(events);
     expect(d).toMatchObject({ proposals: 4, unverified: 1, dropped: [], problems: [] });
+    // What had no home is recommended, with the entries held for the writer's decision.
+    expect(d.recommendations.map((r) => r.kind)).toEqual(['new_type', 'unplaced']);
+    expect(d.recommendations[0]).toMatchObject({ kind: 'new_type', typeKey: 'institution', names: ['The Counting House'] });
     expect(d.costUsd).toBeCloseTo(2 * (400 * 0.1 + 80 * 0.4) / 1_000_000);
     expect(d.runId).not.toBeNull();
 
@@ -146,8 +156,8 @@ describe('the extraction lane', () => {
     expect(d.proposals).toBe(0);
     expect(d.runId).toBeNull();
     expect(asked).toHaveLength(3);
-    expect(asked[1]!.messages[0]!.content).toContain('Your previous answer was not one JSON object.');
-    expect(asked[0]!.messages[0]!.content).not.toContain('Your previous answer');
+    expect(asked[1]!.messages[1]!.content).toContain('Your previous answer was not one JSON object.');
+    expect(asked[0]!.messages[1]!.content).not.toContain('Your previous answer');
     expect(d.problems.map((p) => [p.state, p.attempts])).toEqual([['malformed', 2], ['refused', 1]]);
     expect(d.problems[0]!.detail).toContain('even when asked again');
     expect(d.problems[1]!.detail).toBe('The provider declined: Nope');
@@ -181,6 +191,21 @@ describe('the extraction lane', () => {
     // The retry has at least twice the first budget plus the reasoning the first answer taught the profile.
     expect(asked[1]!.maxTokens).toBeGreaterThanOrEqual(asked[0]!.maxTokens * 2 + 3000);
     expect((await runs.list(P)).filter((r) => r.status === 'truncated')).toHaveLength(4);
+  });
+
+  it('asks once more, as it was, when the connection dropped, and names the drop when it drops twice', async () => {
+    const { adapter, asked } = fake((_req, n) => (n === 1
+      ? new ProviderError('network', 'The connection dropped after 41s with 1,240 characters received.')
+      : n === 2
+        ? answer({ entities: [{ name: 'Ilva', type: 'character', summary: 'x', quote: 'keeps the seal, and the gate' }] })
+        : new ProviderError('network', 'The connection dropped after 12s with 0 characters received.')));
+    const events = await run(adapter);
+    const [first, second] = events.filter((e) => e.kind === 'chunk') as (ExtractEvent & ChunkOutcome)[];
+    expect(first).toMatchObject({ state: 'ok', proposals: 1, attempts: 2 });
+    expect(asked[1]!.messages[1]!.content).toBe(asked[0]!.messages[1]!.content);
+    expect(second).toMatchObject({ state: 'failed', attempts: 2 });
+    expect(second!.detail).toContain('dropped mid-answer');
+    expect(asked).toHaveLength(4);
   });
 
   it('explains a provider failure in the writer\'s terms', async () => {
@@ -228,5 +253,55 @@ describe('the extraction lane', () => {
     const d = done(await run(adapter, ctl.signal));
     expect(d.proposals).toBe(1);
     expect(d.problems.map((p) => [p.label, p.state, p.detail])).toEqual([['cast/renn.md', 'cancelled', null]]);
+  });
+});
+
+describe('groupOutcomes', () => {
+  const o = (index: number, state: ChunkOutcome['state'], detail: string | null, proposals = 0): ChunkOutcome => ({
+    index, label: `f${index}.md`, state, proposals, costUsd: null, runId: `r${index}`, detail, attempts: 1,
+  });
+  it('folds failures with one reason into one group, keeps each read file, and holds first-seen order', () => {
+    const groups = groupOutcomes([
+      o(0, 'failed', 'no endpoints'), o(1, 'ok', null, 3), o(2, 'failed', 'no endpoints'),
+      o(3, 'ok', null, 1), o(4, 'malformed', 'wrong shape'), o(5, 'failed', 'declined by policy'),
+      o(6, 'failed', 'no endpoints'),
+    ]);
+    expect(groups.map((g) => [g.state, g.detail, g.outcomes.map((x) => x.index)])).toEqual([
+      ['failed', 'no endpoints', [0, 2, 6]],
+      ['ok', null, [1]],
+      ['ok', null, [3]],
+      ['malformed', 'wrong shape', [4]],
+      ['failed', 'declined by policy', [5]],
+    ]);
+    expect(groupOutcomes([])).toEqual([]);
+  });
+});
+
+describe('what is on the wire', () => {
+  it('says when each call goes out and what has come back, thinking included', async () => {
+    const { adapter } = fake(() => [
+      { kind: 'reasoning', text: 'Let me read this.' },
+      { kind: 'text', text: '{"entities": [{"name": "Ilva", "type": "character", ' },
+      { kind: 'text', text: '"summary": "x", "quote": "keeps the seal, and the gate"}]}' },
+      { kind: 'usage', promptTokens: 400, completionTokens: 80, reasoningTokens: 20 },
+      { kind: 'done', finishReason: 'stop', servedBy: 'Cheap' },
+    ]);
+    const events = await run(adapter);
+    const kinds = events.map((e) => e.kind);
+    expect(kinds[0]).toBe('plan');
+    expect(kinds.filter((k) => k === 'sending')).toHaveLength(2);
+    // Each chunk: sending, at least one receiving, then its outcome — in that order.
+    const first = events.findIndex((e) => e.kind === 'sending');
+    const firstChunk = events.findIndex((e) => e.kind === 'chunk');
+    const receiving = events.slice(first, firstChunk).filter((e) => e.kind === 'receiving');
+    expect(receiving.length).toBeGreaterThanOrEqual(1);
+    expect(events[first]).toMatchObject({
+      kind: 'sending', index: 0, label: 'cast/ilva.md', attempt: 1, chars: 0, reasoning: false,
+    });
+    expect((events[first] as { words: number; maxTokens: number }).words).toBeGreaterThan(0);
+    expect((events[first] as { maxTokens: number }).maxTokens).toBeGreaterThanOrEqual(800);
+    // The first thing back was reasoning: the screen can say the model is thinking before any text.
+    expect(receiving[0]).toMatchObject({ kind: 'receiving', reasoning: true, chars: 0 });
+    expect(events[firstChunk]).toMatchObject({ kind: 'chunk', state: 'ok', proposals: 1 });
   });
 });
